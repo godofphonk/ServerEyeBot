@@ -26,7 +26,7 @@ func (b *Bot) startHTTPServer() {
 		}
 	}()
 
-	b.logger.Info("Info message")
+	b.logger.Info("Starting HTTP server for agent API")
 	http.HandleFunc("/api/register-key", b.handleRegisterKey)
 	http.HandleFunc("/api/validate-key/", b.handleValidateKey)
 	http.HandleFunc("/api/health", b.handleHealth)
@@ -49,7 +49,7 @@ func (b *Bot) startHTTPServer() {
 	// Statistics endpoints for ServerEye-Web integration
 	http.HandleFunc("/api/stats/users", b.handleUserStats)
 
-	b.logger.Info("Info message")
+	b.logger.Info("Starting HTTP server for agent API")
 
 	// Create HTTP server with proper timeouts for security
 	port := os.Getenv("HTTP_PORT")
@@ -64,28 +64,28 @@ func (b *Bot) startHTTPServer() {
 	}
 
 	if err := server.ListenAndServe(); err != nil {
-		b.logger.Error("Error occurred", err)
+		b.logger.Error("Failed to register key", err)
 	}
 }
 
 // handleRegisterKey handles key registration from agent
 func (b *Bot) handleRegisterKey(w http.ResponseWriter, r *http.Request) {
-	b.logger.Info("HTTP request received")
+	b.logger.Info("Key registration request received")
 
 	if r.Method != http.MethodPost {
-		b.logger.Error("Error message", nil)
+		b.logger.Error("Method not allowed for key registration", nil)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var req KeyRegistrationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		b.logger.Error("Error occurred", err)
+		b.logger.Error("Failed to register key", err)
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
 		return
 	}
 
-	b.logger.Info("Operation completed")
+	b.logger.Info("Secret key validated")
 
 	// Validate secret key
 	if !strings.HasPrefix(req.SecretKey, "srv_") {
@@ -95,7 +95,7 @@ func (b *Bot) handleRegisterKey(w http.ResponseWriter, r *http.Request) {
 
 	// Record the key
 	if err := b.recordGeneratedKey(req.SecretKey, req.Hostname); err != nil {
-		b.logger.Error("Error occurred", err)
+		b.logger.Error("Failed to register key", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -103,11 +103,11 @@ func (b *Bot) handleRegisterKey(w http.ResponseWriter, r *http.Request) {
 	// If agent info provided, update connection info
 	if req.AgentVersion != "" || req.OSInfo != "" || req.Hostname != "" {
 		if err := b.updateKeyConnection(req.SecretKey, req.AgentVersion, req.OSInfo, req.Hostname); err != nil {
-			b.logger.Error("Error occurred", err)
+			b.logger.Error("Failed to register key", err)
 		}
 	}
 
-	b.logger.Info("Operation completed")
+	b.logger.Info("Key registration completed successfully")
 
 	b.writeJSONSuccess(w, map[string]string{
 		"message": "Key registered successfully",
@@ -157,10 +157,33 @@ func (b *Bot) handleValidateKey(w http.ResponseWriter, r *http.Request) {
 
 // handleHealth handles health check requests
 func (b *Bot) handleHealth(w http.ResponseWriter, r *http.Request) {
-	b.writeJSON(w, map[string]string{
+	health := map[string]interface{}{
 		"status":  "healthy",
 		"service": "servereye-bot",
-	})
+	}
+
+	// Check main database
+	if b.db != nil {
+		if err := b.db.Ping(); err != nil {
+			health["status"] = "unhealthy"
+			health["database"] = "error"
+		} else {
+			health["database"] = "ok"
+		}
+	}
+
+	// Check keys database (non-blocking)
+	if b.keysDB != nil {
+		if err := b.keysDB.Ping(); err != nil {
+			health["keys_database"] = "error"
+			// Don't set overall status to unhealthy for keys DB failure
+			b.logger.Error("Keys database health check failed", err)
+		} else {
+			health["keys_database"] = "ok"
+		}
+	}
+
+	b.writeJSON(w, health)
 }
 
 // HeartbeatRequest represents an agent heartbeat
@@ -330,7 +353,7 @@ func (b *Bot) handleRedisSubscribe(w http.ResponseWriter, r *http.Request) {
 	// Subscribe to Redis channel
 	subscription, err := b.redisClient.Subscribe(b.ctx, req.Channel)
 	if err != nil {
-		b.logger.Error("Error occurred", err)
+		b.logger.Error("Failed to register key", err)
 		http.Error(w, "Redis subscribe failed", http.StatusInternalServerError)
 		return
 	}

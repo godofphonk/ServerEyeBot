@@ -36,7 +36,8 @@ type TelegramConfig struct {
 
 // DatabaseConfig конфигурация базы данных
 type DatabaseConfig struct {
-	URL string `yaml:"url"`
+	URL         string `yaml:"url"`
+	KeysURL     string `yaml:"keys_url"`
 }
 
 // KafkaConfig конфигурация Kafka
@@ -60,6 +61,11 @@ func LoadBotConfig(filepath string) (*BotConfig, error) {
 	var config BotConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("не удалось парсить конфигурацию: %v", err)
+	}
+
+	// Load KEYS_DATABASE_URL from environment if not set in YAML
+	if config.Database.KeysURL == "" {
+		config.Database.KeysURL = os.Getenv("KEYS_DATABASE_URL")
 	}
 
 	// Валидация конфигурации

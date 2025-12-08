@@ -115,7 +115,7 @@ services:
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports:
-      - "8082:8081"  # Use 8082 to avoid conflict
+      - "8084:8081"  # Use 8082 to avoid conflict
     depends_on:
       - redis
     networks:

@@ -49,25 +49,10 @@ func (b *Bot) initDatabase() error {
 			executed_at TIMESTAMP DEFAULT NOW()
 		)`,
 
-		`CREATE TABLE IF NOT EXISTS generated_keys (
-			id BIGSERIAL PRIMARY KEY,
-			secret_key VARCHAR(64) UNIQUE NOT NULL,
-			generated_at TIMESTAMP DEFAULT NOW(),
-			first_connection TIMESTAMP,
-			last_seen TIMESTAMP,
-			connection_count INTEGER DEFAULT 0,
-			agent_version VARCHAR(50),
-			os_info VARCHAR(100),
-			hostname VARCHAR(255),
-			status VARCHAR(20) DEFAULT 'generated'
-		)`,
-
 		`CREATE INDEX IF NOT EXISTS idx_servers_secret_key ON servers(secret_key)`,
 		`CREATE INDEX IF NOT EXISTS idx_servers_owner_id ON servers(owner_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_servers_user_id ON user_servers(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_command_history_server_id ON command_history(server_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_generated_keys_secret_key ON generated_keys(secret_key)`,
-		`CREATE INDEX IF NOT EXISTS idx_generated_keys_status ON generated_keys(status)`,
 	}
 
 	for _, query := range queries {
@@ -270,22 +255,29 @@ func (b *Bot) getUserServersWithInfo(userID int64) ([]ServerInfo, error) {
 
 // connectServerWithName connects a server with custom name
 func (b *Bot) connectServerWithName(userID int64, serverKey, serverName string) error {
-	tx, err := b.db.Begin()
-	if err != nil {
-		return err
+	// Use keysDB for key validation
+	keysDB := b.keysDB
+	if keysDB == nil {
+		keysDB = b.db
 	}
-	defer tx.Rollback()
-
-	// First, check if the key exists in generated_keys table
+	
+	// First, check if the key exists in generated_keys table using keysDB
 	var keyExists bool
-	err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM generated_keys WHERE secret_key = $1)`, serverKey).Scan(&keyExists)
+	err := keysDB.QueryRow(`SELECT EXISTS(SELECT 1 FROM generated_keys WHERE secret_key = $1)`, serverKey).Scan(&keyExists)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to validate key: %w", err)
 	}
 
 	if !keyExists {
 		return fmt.Errorf("invalid server key: key not found in generated keys")
 	}
+
+	// Now proceed with main database operations
+	tx, err := b.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 
 	// Check if server already exists
 	var serverID string
@@ -302,14 +294,16 @@ func (b *Bot) connectServerWithName(userID int64, serverKey, serverName string) 
 			return err
 		}
 
-		// Update generated_keys status to connected
-		_, err = tx.Exec(`
+		// Update generated_keys status to connected using keysDB
+		_, err = keysDB.Exec(`
 			UPDATE generated_keys 
 			SET status = 'connected', first_connection = COALESCE(first_connection, NOW()), last_seen = NOW(), connection_count = connection_count + 1
 			WHERE secret_key = $1
 		`, serverKey)
 		if err != nil {
-			return err
+			// Note: We can't rollback the main transaction, but we should log this error
+			b.logger.Error("Failed to update generated_keys status", err)
+			// Continue with the operation as the server was successfully created
 		}
 	} else if err != nil {
 		return err
@@ -393,7 +387,14 @@ func (b *Bot) keyExists(secretKey string) (bool, error) {
 			SELECT 1 FROM generated_keys WHERE secret_key = $1
 		)
 	`
-	err := b.db.QueryRow(query, secretKey).Scan(&exists)
+	
+	// Use keysDB for key validation
+	db := b.keysDB
+	if db == nil {
+		db = b.db
+	}
+	
+	err := db.QueryRow(query, secretKey).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to check key existence: %w", err)
 	}
@@ -415,7 +416,13 @@ func (b *Bot) updateKeyConnection(secretKey, agentVersion, osInfo, hostname stri
 		WHERE secret_key = $1
 	`
 
-	_, err := b.db.Exec(query, secretKey, agentVersion, osInfo, hostname)
+	// Use keysDB for updating key connection info
+	db := b.keysDB
+	if db == nil {
+		db = b.db
+	}
+
+	_, err := db.Exec(query, secretKey, agentVersion, osInfo, hostname)
 	if err != nil {
 		return fmt.Errorf("failed to update key connection: %v", err)
 	}

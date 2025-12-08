@@ -35,7 +35,8 @@ type Bot struct {
 	metrics     Metrics
 
 	// Direct database access for internal methods
-	db *sql.DB
+	db      *sql.DB
+	keysDB  *sql.DB
 
 	// Concrete Redis client for Streams
 	redisRawClient *redis.Client
@@ -142,6 +143,29 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 
 	logger.Info("Database connection established")
 
+	// Initialize keys database connection
+	var keysDB *sql.DB
+	if cfg.Database.KeysURL != "" {
+		keysDB, err = sql.Open("postgres", cfg.Database.KeysURL)
+		if err != nil {
+			return nil, NewDatabaseError("failed to connect to keys database", err)
+		}
+
+		if err := keysDB.Ping(); err != nil {
+			return nil, NewDatabaseError("failed to ping keys database", err)
+		}
+
+		// Set connection pooling for keys database (read-only access)
+		keysDB.SetMaxOpenConns(5)
+		keysDB.SetMaxIdleConns(2)
+		keysDB.SetConnMaxLifetime(5 * time.Minute)
+
+		logger.Info("Keys database connection established")
+	} else {
+		logger.Warn("KEYS_DATABASE_URL not configured, using main database for keys")
+		keysDB = db
+	}
+
 	// Create a temporary bot instance for adapters
 	tempBot := &Bot{}
 
@@ -170,6 +194,7 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 	dbAdapter.bot = bot
 	agentAdapter.bot = bot
 	bot.db = db
+	bot.keysDB = keysDB
 	bot.redisRawClient = redisClient // Store raw client for Streams
 
 	// Initialize Streams client
@@ -396,6 +421,13 @@ func (b *Bot) Stop() error {
 	if b.database != nil {
 		if err := b.database.Close(); err != nil {
 			b.logger.Error("Error closing database connection", err)
+		}
+	}
+
+	// Close keys database connection if it's separate from main DB
+	if b.keysDB != nil && b.keysDB != b.db {
+		if err := b.keysDB.Close(); err != nil {
+			b.logger.Error("Error closing keys database connection", err)
 		}
 	}
 
