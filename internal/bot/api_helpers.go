@@ -24,7 +24,16 @@ func sendCommandAndParse[T any](
 	ctx, cancel := context.WithTimeout(b.ctx, timeout)
 	defer cancel()
 
-	resp, err := b.sendCommandViaStreams(ctx, serverKey, cmd, timeout)
+	var resp *protocol.Message
+	var err error
+
+	// Choose transport based on configuration
+	if b.useKafka && b.commandProducer != nil {
+		resp, err = b.sendCommandViaKafka(ctx, serverKey, cmd, timeout)
+	} else {
+		resp, err = b.sendCommandViaStreams(ctx, serverKey, cmd, timeout)
+	}
+
 	if err != nil {
 		return nil, err
 	}

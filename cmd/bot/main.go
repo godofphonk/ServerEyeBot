@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/servereye/servereyebot/internal/bot"
@@ -99,6 +101,15 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 	redisPassword := os.Getenv("REDIS_PASSWORD")
 	databaseURL := os.Getenv("DATABASE_URL")
 	keysDatabaseURL := os.Getenv("KEYS_DATABASE_URL")
+	
+	// Kafka configuration
+	kafkaEnabledStr := os.Getenv("KAFKA_ENABLED")
+	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
+	kafkaTopicPrefix := os.Getenv("KAFKA_TOPIC_PREFIX")
+	kafkaCompression := os.Getenv("KAFKA_COMPRESSION")
+	kafkaMaxAttemptsStr := os.Getenv("KAFKA_MAX_ATTEMPTS")
+	kafkaBatchSizeStr := os.Getenv("KAFKA_BATCH_SIZE")
+	kafkaRequiredAcksStr := os.Getenv("KAFKA_REQUIRED_ACKS")
 
 	// Support legacy REDIS_URL format
 	if redisAddress == "" {
@@ -108,6 +119,62 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 			if len(redisURL) > 8 && redisURL[:8] == "redis://" {
 				redisAddress = redisURL[8:]
 			}
+		}
+	}
+	
+	// Parse Kafka configuration
+	var kafkaConfig config.KafkaConfig
+	if kafkaEnabledStr == "true" || kafkaEnabledStr == "1" {
+		kafkaConfig.Enabled = true
+		
+		// Set defaults for optional fields
+		if kafkaBrokers == "" {
+			kafkaConfig.Brokers = []string{"localhost:9092"}
+		} else {
+			// Split comma-separated brokers
+			kafkaConfig.Brokers = strings.Split(kafkaBrokers, ",")
+		}
+		
+		if kafkaTopicPrefix == "" {
+			kafkaConfig.TopicPrefix = "metrics"
+		} else {
+			kafkaConfig.TopicPrefix = kafkaTopicPrefix
+		}
+		
+		if kafkaCompression == "" {
+			kafkaConfig.Compression = "snappy"
+		} else {
+			kafkaConfig.Compression = kafkaCompression
+		}
+		
+		if kafkaMaxAttemptsStr != "" {
+			if maxAttempts, err := strconv.Atoi(kafkaMaxAttemptsStr); err == nil {
+				kafkaConfig.MaxAttempts = maxAttempts
+			} else {
+				kafkaConfig.MaxAttempts = 3
+			}
+		} else {
+			kafkaConfig.MaxAttempts = 3
+		}
+		
+		if kafkaBatchSizeStr != "" {
+			if batchSize, err := strconv.Atoi(kafkaBatchSizeStr); err == nil {
+				kafkaConfig.BatchSize = batchSize
+			} else {
+				kafkaConfig.BatchSize = 100
+			}
+		} else {
+			kafkaConfig.BatchSize = 100
+		}
+		
+		if kafkaRequiredAcksStr != "" {
+			if requiredAcks, err := strconv.Atoi(kafkaRequiredAcksStr); err == nil {
+				kafkaConfig.RequiredAcks = requiredAcks
+			} else {
+				kafkaConfig.RequiredAcks = 1
+			}
+		} else {
+			kafkaConfig.RequiredAcks = 1
 		}
 	}
 
@@ -128,6 +195,7 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 			URL:     databaseURL,
 			KeysURL: keysDatabaseURL,
 		},
+		Kafka: kafkaConfig,
 		Logging: config.LoggingConfig{
 			Level: "info",
 		},
