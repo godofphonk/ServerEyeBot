@@ -7,7 +7,7 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.bot
-    container_name: servereye-bot-dev
+    container_name: servereyeBot-bot-dev
     restart: unless-stopped
     env_file:
       - ../.env.dev
@@ -17,7 +17,7 @@ services:
       - KAFKA_ENABLED=false
       - ENABLE_PROFILING=true
     ports:
-      - "8080:8080"  # Health check endpoint
+      - "9080:8080"  # Health check endpoint
     depends_on:
       - redis
       - postgres
@@ -37,7 +37,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: servereye-redis-bot-dev
+    container_name: servereyeBot-redis-dev
     restart: unless-stopped
     ports:
       - "6380:6379"  # Use 6380 to avoid conflict
@@ -55,7 +55,7 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: servereye-postgres-bot-dev
+    container_name: servereyeBot-postgres-dev
     restart: unless-stopped
     ports:
       - "5434:5432"  # Use 5434 to avoid conflict
@@ -77,7 +77,7 @@ services:
   # Optional: Kafka for development testing
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
-    container_name: servereye-zookeeper-bot-dev
+    container_name: servereyeBot-zookeeper-dev
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -87,7 +87,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: servereye-kafka-bot-dev
+    container_name: servereyeBot-kafka-dev
     restart: unless-stopped
     depends_on:
       - zookeeper
@@ -110,7 +110,7 @@ services:
   # Redis Commander for development UI
   redis-commander:
     image: rediscommander/redis-commander:latest
-    container_name: servereye-redis-ui-bot
+    container_name: servereyeBot-redis-ui
     restart: unless-stopped
     environment:
       - REDIS_HOSTS=local:redis:6379
@@ -124,7 +124,7 @@ services:
   # PgAdmin for development
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: servereye-pgadmin-bot
+    container_name: servereyeBot-pgadmin
     restart: unless-stopped
     environment:
       - PGADMIN_DEFAULT_EMAIL=admin@servereye.dev
