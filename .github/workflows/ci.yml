@@ -18,7 +18,8 @@ on:
         - dev
         - prod
 
-validate-env:
+jobs:
+  validate-env:
     name: Validate Environment Configuration
     runs-on: ubuntu-latest
     outputs:
