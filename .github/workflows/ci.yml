@@ -1,5 +1,4 @@
 # ServerEye Bot CI/CD Pipeline
-
 name: CI/CD
 
 on:
