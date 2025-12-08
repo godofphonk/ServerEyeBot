@@ -31,23 +31,28 @@ else
     echo -e "${YELLOW}⚠️  servereye-network already exists${NC}"
 fi
 
-# Check if .env.local exists
-if [ ! -f .env.local ]; then
-    echo -e "${RED}❌ .env.local not found. Please configure it first.${NC}"
-    echo -e "${YELLOW}Copy .env.example to .env.local and fill in your values.${NC}"
+# Check if .env files exist
+if [ ! -f .env.dev ] && [ ! -f .env.prod ]; then
+    echo -e "${RED}❌ .env.dev or .env.prod not found. Please configure them first.${NC}"
+    echo -e "${YELLOW}Copy .env.example to .env.dev and .env.prod and fill in your values.${NC}"
     exit 1
 fi
 
-# Validate .env.local
+# Validate .env files
 echo -e "${GREEN}Validating environment configuration...${NC}"
-if grep -q "your_telegram_bot_token_here" .env.local; then
-    echo -e "${RED}❌ Please update TELEGRAM_TOKEN in .env.local${NC}"
+if [ -f .env.dev ] && grep -q "your_telegram_bot_token_here" .env.dev; then
+    echo -e "${RED}❌ Please update TELEGRAM_TOKEN in .env.dev${NC}"
+    exit 1
+fi
+
+if [ -f .env.prod ] && grep -q "your_production_telegram_bot_token_here" .env.prod; then
+    echo -e "${RED}❌ Please update TELEGRAM_TOKEN in .env.prod${NC}"
     exit 1
 fi
 
 echo -e "\n${GREEN}Setup complete!${NC}"
 echo -e "\n${BLUE}Next steps:${NC}"
-echo "1. Update .env.local with your actual values"
+echo "1. Update .env.dev and .env.prod with your actual values"
 echo "2. Generate GHCR auth config: ./scripts/generate-ghcr-auth.sh <username> <token>"
 echo "3. Start dev bot: docker-compose -f deployments/docker-compose.dev.yml up -d"
 echo "4. Start Watchtower: docker-compose -f deployments/docker-compose.watchtower.yml up -d"
