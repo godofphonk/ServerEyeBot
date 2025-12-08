@@ -10,7 +10,7 @@ services:
     container_name: servereye-bot-dev
     restart: unless-stopped
     env_file:
-      - ../.env.local
+      - ../.env.dev
     environment:
       - ENVIRONMENT=dev
       - LOG_LEVEL=debug
