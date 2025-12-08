@@ -98,6 +98,7 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 	redisAddress := os.Getenv("REDIS_ADDRESS")
 	redisPassword := os.Getenv("REDIS_PASSWORD")
 	databaseURL := os.Getenv("DATABASE_URL")
+	keysDatabaseURL := os.Getenv("KEYS_DATABASE_URL")
 
 	// Support legacy REDIS_URL format
 	if redisAddress == "" {
@@ -124,7 +125,8 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 			DB:       0,
 		},
 		Database: config.DatabaseConfig{
-			URL: databaseURL,
+			URL:     databaseURL,
+			KeysURL: keysDatabaseURL,
 		},
 		Logging: config.LoggingConfig{
 			Level: "info",
