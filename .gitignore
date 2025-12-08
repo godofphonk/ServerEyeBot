@@ -23,6 +23,9 @@ build/
 # Configuration files with secrets
 *.env
 !.env*.example
+.env.dev
+.env.prod
+.env.local
 config.yaml
 bot-config.yaml
 

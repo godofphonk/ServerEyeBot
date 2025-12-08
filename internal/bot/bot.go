@@ -46,6 +46,7 @@ type Bot struct {
 	// Kafka components for unified messaging
 	commandProducer  *kafka.CommandProducer
 	responseConsumer *kafka.ResponseConsumer
+	metricsConsumer  *KafkaConsumer
 	useKafka         bool
 
 	// Context management
@@ -194,6 +195,7 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 	var useKafka bool
 	var commandProducer *kafka.CommandProducer
 	var responseConsumer *kafka.ResponseConsumer
+	var metricsConsumer *KafkaConsumer
 
 	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
 		// Initialize command producer
@@ -232,11 +234,26 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 			useKafka = true
 			logger.Info("Kafka response consumer initialized")
 		}
+
+		// Initialize metrics consumer
+		metricsConsumer, err = NewKafkaConsumer(
+			cfg.Kafka.Brokers,
+			"metrics",
+			"bot-metrics-consumers",
+			redisClient.GetRawClient(),
+			logger,
+		)
+		if err != nil {
+			logger.WithError(err).Error("Failed to create Kafka metrics consumer")
+		} else {
+			logger.Info("Kafka metrics consumer initialized")
+		}
 	}
 
 	// Set Kafka components
 	bot.commandProducer = commandProducer
 	bot.responseConsumer = responseConsumer
+	bot.metricsConsumer = metricsConsumer
 	bot.useKafka = useKafka
 
 	return bot, nil
@@ -253,6 +270,16 @@ func (b *Bot) Start() error {
 			return fmt.Errorf("failed to start Kafka response consumer: %v", err)
 		}
 		b.logger.Info("Kafka response consumer started")
+	}
+
+	// Start Kafka metrics consumer if enabled
+	if b.useKafka && b.metricsConsumer != nil {
+		if err := b.metricsConsumer.Start(); err != nil {
+			b.logger.Error("Failed to start Kafka metrics consumer", err)
+			// Non-critical error, continue without metrics caching
+		} else {
+			b.logger.Info("Kafka metrics consumer started")
+		}
 	}
 
 	// Initialize database schema if database is available
@@ -354,6 +381,12 @@ func (b *Bot) Stop() error {
 	}
 
 	// Close connections
+	if b.useKafka && b.metricsConsumer != nil {
+		if err := b.metricsConsumer.Stop(); err != nil {
+			b.logger.Error("Error stopping Kafka metrics consumer", err)
+		}
+	}
+
 	if b.redisClient != nil {
 		if err := b.redisClient.Close(); err != nil {
 			b.logger.Error("Error closing Redis connection", err)

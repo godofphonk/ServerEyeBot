@@ -1,6 +1,6 @@
-# ServerEye Bot CI Pipeline
+# ServerEye Bot CI/CD Pipeline
 
-name: CI
+name: CI/CD
 
 on:
   push:
@@ -8,11 +8,89 @@ on:
     tags: [ 'v*' ]
   pull_request:
     branches: [ master, main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+        - dev
+        - prod
 
-jobs:
+environments:
+  dev:
+    url: https://dev.servereye.com
+  production:
+    url: https://servereye.com
+    protection_rules:
+    - type: branch_policy
+      parameters:
+        allowed_branches:
+        - main
+        - master
+
+validate-env:
+    name: Validate Environment Configuration
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Determine environment
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/master" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.inputs.environment }}" != "" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+          else
+            echo "environment=dev" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Validate .env.example
+        run: |
+          echo "🔍 Validating .env.example template..."
+          if [ ! -f .env.example ]; then
+            echo "❌ .env.example not found"
+            exit 1
+          fi
+          
+          # Check for required variables
+          required_vars=("TELEGRAM_TOKEN" "REDIS_ADDRESS" "DATABASE_URL" "ENVIRONMENT")
+          for var in "${required_vars[@]}"; do
+            if grep -q "^${var}=" .env.example; then
+              echo "✅ $var found in template"
+            else
+              echo "❌ $var missing from template"
+              exit 1
+            fi
+          done
+      
+      - name: Validate environment scripts
+        run: |
+          echo "🔍 Validating environment scripts..."
+          if [ ! -f scripts/validate-env.sh ]; then
+            echo "❌ validate-env.sh not found"
+            exit 1
+          fi
+          
+          # Check script syntax
+          bash -n scripts/validate-env.sh
+          echo "✅ validate-env.sh syntax is valid"
+
   build:
     name: Build and Test Bot
     runs-on: ubuntu-latest
+    needs: validate-env
     
     steps:
       - name: Checkout code
@@ -167,11 +245,12 @@ jobs:
           echo "📦 Checking dependencies..."
           go list -u -m all
 
-  docker-build-dev:
-    name: Build DEV Bot Image
+  deploy-dev:
+    name: Deploy to Development
     runs-on: ubuntu-latest
     needs: [build, lint]
-    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev')
+    environment: dev
     
     permissions:
       contents: read
@@ -207,14 +286,16 @@ jobs:
         run: |
           echo "🧪 DEV bot image published:"
           echo "🤖 Bot: ghcr.io/${{ github.repository_owner }}/servereye-bot:dev"
+          echo "🤖 Bot: ghcr.io/${{ github.repository_owner }}/servereye-bot:dev-${{ github.sha }}"
           echo ""
-          echo "⚡ DEV bot will auto-update in ~1 minute!"
+          echo "⚡ Watchtower will update dev bot in ~1 minute!"
 
-  docker-build-prod:
-    name: Build PROD Bot Image
+  deploy-prod:
+    name: Deploy to Production
     runs-on: ubuntu-latest
     needs: [build, lint]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod')
+    environment: production
     
     permissions:
       contents: read
@@ -258,4 +339,10 @@ jobs:
           echo "🤖 Bot: ghcr.io/${{ github.repository_owner }}/servereye-bot:latest"
           echo "🤖 Bot: ghcr.io/${{ github.repository_owner }}/servereye-bot:${{ steps.version.outputs.VERSION }}"
           echo ""
-          echo "✅ PROD bot will update to stable version!"
+          echo "✅ Watchtower will update prod bot in ~1 minute!"
+      
+      - name: Notify deployment
+        if: always()
+        run: |
+          echo "📧 Sending deployment notification..."
+          # Add notification logic (Slack, email, etc.)

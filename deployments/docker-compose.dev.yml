@@ -1,0 +1,147 @@
+# ServerEye Bot Development Environment
+
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile.bot
+    container_name: servereye-bot-dev
+    restart: unless-stopped
+    env_file:
+      - ../.env.local
+    environment:
+      - ENVIRONMENT=dev
+      - LOG_LEVEL=debug
+      - KAFKA_ENABLED=false
+      - ENABLE_PROFILING=true
+    ports:
+      - "8080:8080"  # Health check endpoint
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ../logs:/var/log/servereye
+    networks:
+      - servereye-network
+    labels:
+      - "com.centurylinklabs.watchtower.scope=servereye"
+      - "com.centurylinklabs.watchtower.enable=true"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: servereye-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+      - ../configs/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - servereye-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: servereye-postgres-dev
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=servereye_bot_dev
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - servereye-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: Kafka for development testing
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: servereye-zookeeper-dev
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - servereye-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: servereye-kafka-dev
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+    networks:
+      - servereye-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Redis Commander for development UI
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: servereye-redis-ui-dev
+    restart: unless-stopped
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - servereye-network
+
+  # PgAdmin for development
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: servereye-pgadmin-dev
+    restart: unless-stopped
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@servereye.dev
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - servereye-network
+
+volumes:
+  redis-data:
+    driver: local
+  postgres-data:
+    driver: local
+
+networks:
+  servereye-network:
+    driver: bridge

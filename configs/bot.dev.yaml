@@ -1,0 +1,52 @@
+# ServerEye Bot Development Configuration
+
+telegram:
+  token: "${TELEGRAM_TOKEN}"
+
+redis:
+  address: "${REDIS_ADDRESS:-localhost:6379}"
+  password: "${REDIS_PASSWORD}"
+  db: ${REDIS_DB:-0}
+
+database:
+  url: "${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/servereye_bot_dev?sslmode=disable}"
+
+kafka:
+  enabled: ${KAFKA_ENABLED:-false}
+  brokers:
+    - "localhost:9092"
+  topic_prefix: "${KAFKA_TOPIC_PREFIX:-metrics}"
+  compression: "${KAFKA_COMPRESSION:-snappy}"
+  max_attempts: ${KAFKA_MAX_ATTEMPTS:-3}
+  batch_size: ${KAFKA_BATCH_SIZE:-100}
+  required_acks: ${KAFKA_REQUIRED_ACKS:-1}
+
+logging:
+  level: "${LOG_LEVEL:-debug}"
+  file: "${LOG_FILE}"
+
+monitoring:
+  metrics_enabled: true
+  health_check_enabled: true
+  prometheus_enabled: false
+  profiling_enabled: true
+
+security:
+  jwt_secret: "${JWT_SECRET:-dev-secret-change-in-production}"
+  cors_allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+
+rate_limiting:
+  requests_per_minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-100}
+  burst: ${RATE_LIMIT_BURST:-20}
+
+timeouts:
+  http: "${HTTP_TIMEOUT:-30s}"
+  redis: "${REDIS_TIMEOUT:-5s}"
+  database: "${DATABASE_TIMEOUT:-10s}"
+
+feature_flags:
+  enable_kafka_metrics: ${ENABLE_KAFKA_METRICS:-false}
+  enable_prometheus: ${ENABLE_PROMETHEUS:-false}
+  enable_profiling: ${ENABLE_PROFILING:-true}

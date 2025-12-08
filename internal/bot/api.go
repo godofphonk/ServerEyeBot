@@ -10,8 +10,21 @@ import (
 	"github.com/servereye/servereyebot/pkg/redis"
 )
 
-// getCPUTemperature requests CPU temperature from agent via Streams
+// getCPUTemperature requests CPU temperature from agent via Streams or cached metrics
 func (b *Bot) getCPUTemperature(serverKey string) (float64, error) {
+	// Try to get from Kafka cache first if available
+	if b.useKafka && b.metricsConsumer != nil {
+		temp, timestamp, err := b.metricsConsumer.GetCachedMetric(serverKey, "cpu_temperature", "")
+		if err == nil {
+			// Check if cached data is recent (less than 2 minutes old)
+			if timestamp != nil && time.Since(*timestamp) < 2*time.Minute {
+				b.logger.Debug("Using cached CPU temperature")
+				return temp, nil
+			}
+		}
+	}
+
+	// Fallback to requesting from agent
 	type tempResponse struct {
 		Temperature float64 `json:"temperature"`
 	}
@@ -161,8 +174,27 @@ func (b *Bot) formatContainers(containers *protocol.ContainersPayload) string {
 	return result.String()
 }
 
-// getMemoryInfo requests memory information from agent via Streams
+// getMemoryInfo requests memory information from agent via Streams or cached metrics
 func (b *Bot) getMemoryInfo(serverKey string) (*protocol.MemoryInfo, error) {
+	// Try to get from Kafka cache first if available
+	if b.useKafka && b.metricsConsumer != nil {
+		// Get individual memory metrics
+		total, _, err1 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_total", "")
+		available, _, err2 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_available", "")
+		used, _, err3 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_used", "")
+		
+		// If we have at least some cached data, use it
+		if err1 == nil || err2 == nil || err3 == nil {
+			b.logger.Debug("Using cached memory info")
+			return &protocol.MemoryInfo{
+				Total:     uint64(total),
+				Available: uint64(available),
+				Used:      uint64(used),
+			}, nil
+		}
+	}
+
+	// Fallback to requesting from agent
 	return sendCommandAndParse[protocol.MemoryInfo](
 		b,
 		serverKey,
@@ -173,8 +205,34 @@ func (b *Bot) getMemoryInfo(serverKey string) (*protocol.MemoryInfo, error) {
 	)
 }
 
-// getDiskInfo requests disk information from agent via Streams
+// getDiskInfo requests disk information from agent via Streams or cached metrics
 func (b *Bot) getDiskInfo(serverKey string) (*protocol.DiskInfoPayload, error) {
+	// Try to get from Kafka cache first if available
+	if b.useKafka && b.metricsConsumer != nil {
+		// Get disk usage metrics
+		used, _, err1 := b.metricsConsumer.GetCachedMetric(serverKey, "disk_used", "")
+		total, _, err2 := b.metricsConsumer.GetCachedMetric(serverKey, "disk_total", "")
+		
+		// If we have disk metrics, construct response
+		if err1 == nil && err2 == nil && total > 0 {
+			b.logger.Debug("Using cached disk info")
+			percent := (used / total) * 100
+			return &protocol.DiskInfoPayload{
+				Disks: []protocol.DiskInfo{
+					{
+						Path:       "/", // Default path
+						Total:      uint64(total),
+						Used:       uint64(used),
+						Free:       uint64(total - used),
+						UsedPercent: percent,
+						Filesystem: "unknown", // Not cached
+					},
+				},
+			}, nil
+		}
+	}
+
+	// Fallback to requesting from agent
 	return sendCommandAndParse[protocol.DiskInfoPayload](
 		b,
 		serverKey,
