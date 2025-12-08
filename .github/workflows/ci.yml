@@ -19,18 +19,6 @@ on:
         - dev
         - prod
 
-environments:
-  dev:
-    url: https://dev.servereye.com
-  production:
-    url: https://servereye.com
-    protection_rules:
-    - type: branch_policy
-      parameters:
-        allowed_branches:
-        - main
-        - master
-
 validate-env:
     name: Validate Environment Configuration
     runs-on: ubuntu-latest
