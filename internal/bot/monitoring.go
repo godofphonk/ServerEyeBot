@@ -473,7 +473,7 @@ func (b *Bot) handleUpdate(message *tgbotapi.Message) string {
 	// Send "updating" message
 	b.sendMessage(message.Chat.ID, fmt.Sprintf("🔄 Updating agent on %s...\n\nThis may take a minute.", serverName))
 
-	updateResp, err := b.updateAgent(serverKey, "latest")
+	updateResp, err := b.updateAgent(serverKey, "latest", message.From.ID)
 	if err != nil {
 		b.logger.Error("Error occurred", err)
 		return fmt.Sprintf("❌ Failed to update agent on %s: %v", serverName, err)

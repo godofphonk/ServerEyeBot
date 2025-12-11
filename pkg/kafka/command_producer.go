@@ -13,8 +13,12 @@ import (
 
 // CommandProducer отправляет команды в Kafka
 type CommandProducer struct {
-	writer *kafka.Writer
-	logger *logrus.Logger
+	writer        *kafka.Writer
+	logger        *logrus.Logger
+	brokers       []string
+	compression   string
+	batchSize     int
+	batchTimeout  time.Duration
 }
 
 // CommandProducerConfig конфигурация producer
@@ -36,52 +40,29 @@ func NewCommandProducer(cfg CommandProducerConfig, logger *logrus.Logger) (*Comm
 	}
 
 	// Устанавливаем значения по умолчанию
-	if cfg.Topic == "" {
-		cfg.Topic = "servereye.commands"
-	}
 	if cfg.BatchSize == 0 {
 		cfg.BatchSize = 1 // Для команд отправляем сразу, не ждем батча
 	}
 	if cfg.BatchTimeout == 0 {
 		cfg.BatchTimeout = 10 * time.Millisecond
 	}
-
-	// Создаем writer
-	writer := kafka.WriterConfig{
-		Brokers:      cfg.Brokers,
-		Topic:        cfg.Topic,
-		Balancer:     &kafka.Hash{},
-		BatchSize:    cfg.BatchSize,
-		BatchTimeout: cfg.BatchTimeout,
-		Async:        false, // Для команд используем синхронную отправку
-	}
-
-	kafkaWriter := kafka.NewWriter(writer)
-
-	// Устанавливаем compression
-	switch cfg.Compression {
-	case "gzip":
-		kafkaWriter.Compression = kafka.Gzip
-	case "snappy":
-		kafkaWriter.Compression = kafka.Snappy
-	case "lz4":
-		kafkaWriter.Compression = kafka.Lz4
-	case "zstd":
-		kafkaWriter.Compression = kafka.Zstd
-	default:
-		kafkaWriter.Compression = kafka.Compression(0) // None
+	if cfg.Compression == "" {
+		cfg.Compression = "snappy"
 	}
 
 	logger.WithFields(logrus.Fields{
 		"brokers":     cfg.Brokers,
-		"topic":       cfg.Topic,
 		"compression": cfg.Compression,
 		"batch_size":  cfg.BatchSize,
 	}).Info("Kafka command producer initialized")
 
+	// Не создаем writer здесь, так как топик будет динамическим
 	return &CommandProducer{
-		writer: kafkaWriter,
-		logger: logger,
+		brokers:      cfg.Brokers,
+		logger:       logger,
+		compression:  cfg.Compression,
+		batchSize:    cfg.BatchSize,
+		batchTimeout: cfg.BatchTimeout,
 	}, nil
 }
 
@@ -92,6 +73,34 @@ func (p *CommandProducer) SendCommand(ctx context.Context, serverKey string, com
 	if err != nil {
 		return fmt.Errorf("failed to marshal command: %w", err)
 	}
+
+	// Создаем динамический топик для сервера
+	topic := fmt.Sprintf("cmd.%s", serverKey)
+
+	// Создаем writer для этого топика
+	writer := &kafka.Writer{
+		Addr:         kafka.TCP(p.brokers...),
+		Topic:        topic,
+		Balancer:     &kafka.Hash{},
+		BatchSize:    p.batchSize,
+		BatchTimeout: p.batchTimeout,
+		Async:        false, // Для команд используем синхронную отправку
+	}
+
+	// Устанавливаем compression
+	switch p.compression {
+	case "gzip":
+		writer.Compression = kafka.Gzip
+	case "snappy":
+		writer.Compression = kafka.Snappy
+	case "lz4":
+		writer.Compression = kafka.Lz4
+	case "zstd":
+		writer.Compression = kafka.Zstd
+	default:
+		writer.Compression = kafka.Compression(0) // None
+	}
+	defer writer.Close()
 
 	// Создаем сообщение
 	msg := kafka.Message{
@@ -108,12 +117,13 @@ func (p *CommandProducer) SendCommand(ctx context.Context, serverKey string, com
 
 	// Отправляем сообщение
 	start := time.Now()
-	err = p.writer.WriteMessages(ctx, msg)
+	err = writer.WriteMessages(ctx, msg)
 	if err != nil {
 		p.logger.WithFields(logrus.Fields{
 			"command_id":   command.ID,
 			"command_type": command.Type,
 			"server_key":   serverKey,
+			"topic":        topic,
 			"error":        err,
 		}).Error("Failed to send command to Kafka")
 		return fmt.Errorf("kafka write failed: %w", err)
@@ -123,6 +133,7 @@ func (p *CommandProducer) SendCommand(ctx context.Context, serverKey string, com
 		"command_id":   command.ID,
 		"command_type": command.Type,
 		"server_key":   serverKey,
+		"topic":        topic,
 		"duration":     time.Since(start),
 	}).Debug("Command sent to Kafka")
 
@@ -131,11 +142,12 @@ func (p *CommandProducer) SendCommand(ctx context.Context, serverKey string, com
 
 // Close закрывает producer
 func (p *CommandProducer) Close() error {
-	p.logger.Info("Closing Kafka command producer")
-	return p.writer.Close()
+	p.logger.Info("Kafka command producer closed")
+	return nil
 }
 
-// Stats возвращает статистику producer
+// Stats возвращает статистику producer (заглушка, так как writer динамический)
 func (p *CommandProducer) Stats() kafka.WriterStats {
-	return p.writer.Stats()
+	// Возвращаем пустую статистику, так как writer создается динамически для каждой команды
+	return kafka.WriterStats{}
 }

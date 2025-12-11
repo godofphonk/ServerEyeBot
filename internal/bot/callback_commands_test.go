@@ -119,7 +119,7 @@ func TestExecuteUpdateCommand_InvalidServer(t *testing.T) {
 		{SecretKey: "key1", Name: "Server 1"},
 	}
 
-	result := bot.executeUpdateCommand(servers, "2", 123456)
+	result := bot.executeUpdateCommand(servers, "2", 123456, 789012)
 
 	if !strings.Contains(result, "Invalid server selection") {
 		t.Errorf("Expected invalid server error, got: %v", result)
