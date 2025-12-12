@@ -1,16 +1,15 @@
 package bot
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/servereye/servereyebot/pkg/protocol"
-	"github.com/servereye/servereyebot/pkg/redis"
 )
 
-// getCPUTemperature requests CPU temperature from agent via Streams or cached metrics
+// getCPUTemperature requests CPU temperature from agent via Kafka or cached metrics
 func (b *Bot) getCPUTemperature(serverKey string) (float64, error) {
 	// Try to get from Kafka cache first if available
 	if b.useKafka && b.metricsConsumer != nil {
@@ -21,120 +20,53 @@ func (b *Bot) getCPUTemperature(serverKey string) (float64, error) {
 				b.logger.Debug("Using cached CPU temperature")
 				return temp, nil
 			}
+		} else if err != nil && !strings.Contains(err.Error(), "Redis cache not available") {
+			// Log unexpected errors but continue to Kafka
+			b.logger.Error("Failed to get cached temperature, using Kafka", err)
 		}
 	}
 
 	// Fallback to requesting from agent
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	type tempResponse struct {
 		Temperature float64 `json:"temperature"`
 	}
 
-	result, err := sendCommandAndParse[tempResponse](
-		b,
-		serverKey,
-		protocol.TypeGetCPUTemp,
-		nil,
-		protocol.TypeCPUTempResponse,
-		10*time.Second,
-	)
+	var temp tempResponse
+	command := protocol.NewMessage(protocol.TypeGetCPUTemp, nil)
+
+	err := b.sendCommandAndParse(ctx, serverKey, command, 30*time.Second, &temp)
 	if err != nil {
 		return 0, err
 	}
 
-	return result.Temperature, nil
+	return temp.Temperature, nil
 }
 
-// getContainers requests Docker containers list from agent
+// getContainers requests Docker containers list from agent via Kafka
 func (b *Bot) getContainers(serverKey string) (*protocol.ContainersPayload, error) {
-	// Try Streams first if available
-	if b.streamsClient != nil {
-		containers, err := b.getContainersViaStreams(serverKey)
-		if err == nil {
-			return containers, nil
-		}
-		b.logger.Error("Streams failed, using Pub/Sub", err)
-	}
-
-	// Fallback to Pub/Sub
-	return b.getContainersViaPubSub(serverKey)
+	return b.getContainersViaKafka(serverKey)
 }
 
-// getContainersViaPubSub is the old Pub/Sub implementation
-func (b *Bot) getContainersViaPubSub(serverKey string) (*protocol.ContainersPayload, error) {
-	// Create command message first to get ID
-	cmd := protocol.NewMessage(protocol.TypeGetContainers, nil)
+// getContainersViaKafka requests Docker containers list from agent via Kafka
+func (b *Bot) getContainersViaKafka(serverKey string) (*protocol.ContainersPayload, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Subscribe to UNIQUE response channel with command ID
-	respChannel := fmt.Sprintf("resp:%s:%s", serverKey, cmd.ID)
-	b.logger.Info("Подписались на канал Redis")
-
-	subscription, err := b.redisClient.Subscribe(b.ctx, respChannel)
+	command := protocol.NewMessage(protocol.TypeGetContainers, nil)
+	response, err := b.sendCommandViaKafka(ctx, serverKey, command, 30*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to response: %v", err)
+		return nil, err
 	}
-	defer func() {
-		if subscription != nil {
-			if err := subscription.Close(); err != nil {
-				b.logger.Error("Failed to close subscription", err)
-			}
-		}
-	}()
 
-	// Send command to agent
-	cmdChannel := redis.GetCommandChannel(serverKey)
-	data, err := cmd.ToJSON()
+	result, err := protocol.ParsePayload[protocol.ContainersPayload](response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to serialize command: %v", err)
+		return nil, err
 	}
 
-	if err := b.redisClient.Publish(b.ctx, cmdChannel, data); err != nil {
-		return nil, fmt.Errorf("failed to send command: %v", err)
-	}
-
-	b.logger.Info("Команда отправлена агенту")
-
-	// Wait for response with timeout
-	timeout := time.After(10 * time.Second)
-	for {
-		select {
-		case respData := <-subscription.Channel():
-			b.logger.Debug("Получен ответ от агента")
-
-			resp, err := protocol.FromJSON(respData)
-			if err != nil {
-				b.logger.Error("Failed to parse response", err)
-				continue
-			}
-
-			// Check if this response is for our command
-			if resp.ID != cmd.ID {
-				b.logger.Debug("Response ID mismatch, waiting for correct response")
-				continue
-			}
-
-			if resp.Type == protocol.TypeErrorResponse {
-				return nil, fmt.Errorf("agent error: %v", resp.Payload)
-			}
-
-			if resp.Type == protocol.TypeContainersResponse {
-				// Parse containers from payload
-				if payload, ok := resp.Payload.(map[string]interface{}); ok {
-					containersData, _ := json.Marshal(payload)
-					var containers protocol.ContainersPayload
-					if err := json.Unmarshal(containersData, &containers); err == nil {
-						b.logger.Info("Получен список контейнеров")
-						return &containers, nil
-					}
-				}
-				return nil, fmt.Errorf("invalid containers data in response")
-			}
-
-			return nil, fmt.Errorf("unexpected response type: %s", resp.Type)
-
-		case <-timeout:
-			return nil, fmt.Errorf("timeout waiting for response")
-		}
-	}
+	return result, nil
 }
 
 // formatContainers formats containers list for display
@@ -182,7 +114,7 @@ func (b *Bot) getMemoryInfo(serverKey string) (*protocol.MemoryInfo, error) {
 		total, _, err1 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_total", "")
 		available, _, err2 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_available", "")
 		used, _, err3 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_used", "")
-		
+
 		// If we have at least some cached data, use it
 		if err1 == nil || err2 == nil || err3 == nil {
 			b.logger.Debug("Using cached memory info")
@@ -195,24 +127,18 @@ func (b *Bot) getMemoryInfo(serverKey string) (*protocol.MemoryInfo, error) {
 	}
 
 	// Fallback to requesting from agent
-	return sendCommandAndParse[protocol.MemoryInfo](
-		b,
-		serverKey,
-		protocol.TypeGetMemoryInfo,
-		nil,
-		protocol.TypeMemoryInfoResponse,
-		10*time.Second,
-	)
+	var memory protocol.MemoryInfo
+	return &memory, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetMemoryInfo, nil), 10*time.Second, &memory)
 }
 
-// getDiskInfo requests disk information from agent via Streams or cached metrics
+// getDiskInfo requests disk information from agent via Kafka or cached metrics
 func (b *Bot) getDiskInfo(serverKey string) (*protocol.DiskInfoPayload, error) {
 	// Try to get from Kafka cache first if available
 	if b.useKafka && b.metricsConsumer != nil {
 		// Get disk usage metrics
 		used, _, err1 := b.metricsConsumer.GetCachedMetric(serverKey, "disk_used", "")
 		total, _, err2 := b.metricsConsumer.GetCachedMetric(serverKey, "disk_total", "")
-		
+
 		// If we have disk metrics, construct response
 		if err1 == nil && err2 == nil && total > 0 {
 			b.logger.Debug("Using cached disk info")
@@ -220,12 +146,12 @@ func (b *Bot) getDiskInfo(serverKey string) (*protocol.DiskInfoPayload, error) {
 			return &protocol.DiskInfoPayload{
 				Disks: []protocol.DiskInfo{
 					{
-						Path:       "/", // Default path
-						Total:      uint64(total),
-						Used:       uint64(used),
-						Free:       uint64(total - used),
+						Path:        "/", // Default path
+						Total:       uint64(total),
+						Used:        uint64(used),
+						Free:        uint64(total - used),
 						UsedPercent: percent,
-						Filesystem: "unknown", // Not cached
+						Filesystem:  "unknown", // Not cached
 					},
 				},
 			}, nil
@@ -233,50 +159,26 @@ func (b *Bot) getDiskInfo(serverKey string) (*protocol.DiskInfoPayload, error) {
 	}
 
 	// Fallback to requesting from agent
-	return sendCommandAndParse[protocol.DiskInfoPayload](
-		b,
-		serverKey,
-		protocol.TypeGetDiskInfo,
-		nil,
-		protocol.TypeDiskInfoResponse,
-		10*time.Second,
-	)
+	var disk protocol.DiskInfoPayload
+	return &disk, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetDiskInfo, nil), 10*time.Second, &disk)
 }
 
-// getUptime requests uptime information from agent via Streams
+// getUptime requests uptime information from agent via Kafka
 func (b *Bot) getUptime(serverKey string) (*protocol.UptimeInfo, error) {
-	return sendCommandAndParse[protocol.UptimeInfo](
-		b,
-		serverKey,
-		protocol.TypeGetUptime,
-		nil,
-		protocol.TypeUptimeResponse,
-		10*time.Second,
-	)
+	var uptime protocol.UptimeInfo
+	return &uptime, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetUptime, nil), 10*time.Second, &uptime)
 }
 
-// getProcesses requests processes information from agent via Streams
+// getProcesses requests processes information from agent via Kafka
 func (b *Bot) getProcesses(serverKey string) (*protocol.ProcessesPayload, error) {
-	return sendCommandAndParse[protocol.ProcessesPayload](
-		b,
-		serverKey,
-		protocol.TypeGetProcesses,
-		nil,
-		protocol.TypeProcessesResponse,
-		10*time.Second,
-	)
+	var processes protocol.ProcessesPayload
+	return &processes, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetProcesses, nil), 10*time.Second, &processes)
 }
 
-// getNetworkInfo requests network information from agent via Streams
+// getNetworkInfo requests network information from agent via Kafka
 func (b *Bot) getNetworkInfo(serverKey string) (*protocol.NetworkInfo, error) {
-	return sendCommandAndParse[protocol.NetworkInfo](
-		b,
-		serverKey,
-		protocol.TypeGetNetworkInfo,
-		nil,
-		protocol.TypeNetworkInfoResponse,
-		10*time.Second,
-	)
+	var network protocol.NetworkInfo
+	return &network, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetNetworkInfo, nil), 10*time.Second, &network)
 }
 
 // updateAgent requests agent to update itself
@@ -285,14 +187,8 @@ func (b *Bot) updateAgent(serverKey string, version string, userID int64) (*prot
 		Version: version,
 	}
 
-	response, err := sendCommandAndParse[protocol.UpdateAgentResponse](
-		b,
-		serverKey,
-		protocol.TypeUpdateAgent,
-		payload,
-		protocol.TypeUpdateAgentResponse,
-		30*time.Second,
-	)
+	var update protocol.UpdateAgentResponse
+	err := b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeUpdateAgent, payload), 60*time.Second, &update)
 
 	if err != nil {
 		// Record failed update attempt
@@ -303,11 +199,11 @@ func (b *Bot) updateAgent(serverKey string, version string, userID int64) (*prot
 	}
 
 	// Record successful update
-	if response.Success && response.NewVersion != "" {
-		if recordErr := b.updateAgentVersion(serverKey, response.NewVersion, userID, "manual"); recordErr != nil {
+	if update.Success && update.NewVersion != "" {
+		if recordErr := b.updateAgentVersion(serverKey, update.NewVersion, userID, "manual"); recordErr != nil {
 			b.logger.Error("Failed to update agent version", recordErr)
 		}
 	}
 
-	return response, nil
+	return &update, nil
 }

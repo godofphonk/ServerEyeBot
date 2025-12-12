@@ -170,7 +170,7 @@ func (c *ResponseConsumer) consumeMessage() error {
 }
 
 // WaitForResponse ожидает ответ для конкретной команды
-func (c *ResponseConsumer) WaitForResponse(commandID string, timeout time.Duration) (*protocol.Message, error) {
+func (c *ResponseConsumer) WaitForResponse(ctx context.Context, commandID string, timeout time.Duration) (*protocol.Message, error) {
 	// Создаем канал для ответа
 	responseChan := make(chan *protocol.Message, 1)
 
