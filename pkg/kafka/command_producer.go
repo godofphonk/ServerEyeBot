@@ -85,6 +85,7 @@ func (p *CommandProducer) SendCommand(ctx context.Context, serverKey string, com
 		BatchSize:    p.batchSize,
 		BatchTimeout: p.batchTimeout,
 		Async:        false, // Для команд используем синхронную отправку
+		AllowAutoTopicCreation: true,
 	}
 
 	// Устанавливаем compression

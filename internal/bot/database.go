@@ -518,12 +518,12 @@ func (b *Bot) getAgentUpdateHistory(serverKey string, limit int) ([]map[string]i
 	query := `
 		SELECT 
 			au.new_version,
-			au.old_version,
+			COALESCE(au.old_version, '') as old_version,
 			au.update_status,
-			au.error_message,
+			COALESCE(au.error_message, '') as error_message,
 			au.updated_at,
-			u.first_name,
-			u.username
+			COALESCE(u.first_name, '') as first_name,
+			COALESCE(u.username, '') as username
 		FROM agent_updates au
 		LEFT JOIN users u ON au.updated_by_user_id = u.telegram_id
 		WHERE au.server_id = (SELECT id FROM servers WHERE secret_key = $1)
