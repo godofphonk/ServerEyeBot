@@ -11,15 +11,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Known metric topics that the agent publishes to
+var metricTopics = []string{
+	"metrics.cpu",
+	"metrics.memory",
+	"metrics.disk",
+	"metrics.uptime",
+	"metrics.load",
+	"metrics.network",
+}
+
 // KafkaConsumer handles consuming metrics from Kafka
 type KafkaConsumer struct {
-	reader     *kafka.Reader
-	redis      *redis.Client
-	logger     *logrus.Logger
-	ctx        context.Context
-	cancel     context.CancelFunc
-	topic      string
-	groupID    string
+	readers   []*kafka.Reader // Multiple readers for different topics
+	redis     *redis.Client
+	logger    *logrus.Logger
+	ctx       context.Context
+	cancel    context.CancelFunc
+	groupID   string
 }
 
 // MetricData represents a metric from Kafka
@@ -31,39 +40,59 @@ type MetricData struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// NewKafkaConsumer creates a new Kafka consumer
-func NewKafkaConsumer(kafkaBrokers []string, topic, groupID string, redisClient *redis.Client, logger *logrus.Logger) (*KafkaConsumer, error) {
-	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        kafkaBrokers,
-		GroupID:        groupID,
-		Topic:          topic,
-		MinBytes:       10e3, // 10KB
-		MaxBytes:       10e6, // 10MB
-		CommitInterval: time.Second,
-		StartOffset:    kafka.LastOffset,
-	})
+// NewKafkaConsumer creates a new Kafka consumer that can handle multiple metrics topics
+func NewKafkaConsumer(kafkaBrokers []string, topicPrefix, groupID string, redisClient *redis.Client, logger *logrus.Logger) (*KafkaConsumer, error) {
+	if len(kafkaBrokers) == 0 {
+		return nil, fmt.Errorf("kafka brokers list is empty")
+	}
+	if logger == nil {
+		logger = logrus.New()
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Create readers for all metric topics
+	var readers []*kafka.Reader
+	for _, topic := range metricTopics {
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:        kafkaBrokers,
+			GroupID:        groupID,
+			Topic:          topic,
+			MinBytes:       10e3, // 10KB
+			MaxBytes:       10e6, // 10MB
+			CommitInterval: time.Second,
+			StartOffset:    kafka.LastOffset,
+		})
+		readers = append(readers, reader)
+		
+		logger.WithField("topic", topic).Debug("Created Kafka reader for metric topic")
+	}
+
 	kc := &KafkaConsumer{
-		reader:  reader,
+		readers: readers,
 		redis:   redisClient,
 		logger:  logger,
 		ctx:     ctx,
 		cancel:  cancel,
-		topic:   topic,
 		groupID: groupID,
 	}
+
+	logger.WithFields(logrus.Fields{
+		"topics_count": len(readers),
+		"group_id":     groupID,
+	}).Info("Kafka multi-topic metrics consumer initialized")
 
 	return kc, nil
 }
 
 // Start begins consuming messages from Kafka
 func (kc *KafkaConsumer) Start() error {
-	kc.logger.Infof("Kafka consumer started for topic: %s, group: %s", kc.topic, kc.groupID)
+	kc.logger.Infof("Kafka consumer started for %d topics, group: %s", len(kc.readers), kc.groupID)
 
-	// Start consumption goroutine
-	go kc.consumeLoop()
+	// Start consumption goroutine for each reader
+	for i, reader := range kc.readers {
+		go kc.consumeLoopForReader(reader, metricTopics[i])
+	}
 
 	return nil
 }
@@ -72,29 +101,31 @@ func (kc *KafkaConsumer) Start() error {
 func (kc *KafkaConsumer) Stop() error {
 	kc.cancel()
 	
-	if kc.reader != nil {
-		kc.reader.Close()
+	for _, reader := range kc.readers {
+		if err := reader.Close(); err != nil {
+			kc.logger.WithError(err).Error("Error closing Kafka reader")
+		}
 	}
 
 	kc.logger.Info("Kafka consumer stopped")
 	return nil
 }
 
-// consumeLoop runs the main consumption loop
-func (kc *KafkaConsumer) consumeLoop() {
+// consumeLoopForReader runs the main consumption loop for a specific reader
+func (kc *KafkaConsumer) consumeLoopForReader(reader *kafka.Reader, topic string) {
 	for {
 		select {
 		case <-kc.ctx.Done():
 			return
 		default:
 			// Read message with timeout
-			msg, err := kc.reader.ReadMessage(kc.ctx)
+			msg, err := reader.ReadMessage(kc.ctx)
 			if err != nil {
 				// Check if context was cancelled
 				if kc.ctx.Err() != nil {
 					return
 				}
-				kc.logger.Errorf("Failed to read message: %v", err)
+				kc.logger.WithError(err).WithField("topic", topic).Error("Failed to read message")
 				continue
 			}
 			

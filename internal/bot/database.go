@@ -3,6 +3,7 @@ package bot
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -28,6 +29,7 @@ func (b *Bot) initDatabase() error {
 			owner_id BIGINT REFERENCES users(telegram_id),
 			last_seen TIMESTAMP,
 			status VARCHAR(20) DEFAULT 'offline',
+			agent_version VARCHAR(50),
 			created_at TIMESTAMP DEFAULT NOW(),
 			updated_at TIMESTAMP DEFAULT NOW()
 		)`,
@@ -49,10 +51,23 @@ func (b *Bot) initDatabase() error {
 			executed_at TIMESTAMP DEFAULT NOW()
 		)`,
 
+		`CREATE TABLE IF NOT EXISTS agent_updates (
+			id BIGSERIAL PRIMARY KEY,
+			server_id UUID REFERENCES servers(id),
+			old_version VARCHAR(50),
+			new_version VARCHAR(50) NOT NULL,
+			update_status VARCHAR(20) NOT NULL DEFAULT 'success',
+			updated_by_user_id BIGINT REFERENCES users(telegram_id),
+			update_source VARCHAR(20) DEFAULT 'manual',
+			error_message TEXT,
+			updated_at TIMESTAMP DEFAULT NOW()
+		)`,
+
 		`CREATE INDEX IF NOT EXISTS idx_servers_secret_key ON servers(secret_key)`,
 		`CREATE INDEX IF NOT EXISTS idx_servers_owner_id ON servers(owner_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_user_servers_user_id ON user_servers(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_command_history_server_id ON command_history(server_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_updates_server_id ON agent_updates(server_id)`,
 	}
 
 	for _, query := range queries {
@@ -428,4 +443,123 @@ func (b *Bot) updateKeyConnection(secretKey, agentVersion, osInfo, hostname stri
 	}
 
 	return nil
+}
+
+// updateAgentVersion updates agent version and records update history
+func (b *Bot) updateAgentVersion(serverKey, newVersion string, userID int64, updateSource string) error {
+	tx, err := b.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %v", err)
+	}
+	defer tx.Rollback()
+
+	// Get current version and server ID
+	var serverID string
+	var oldVersion sql.NullString
+	err = tx.QueryRow(`
+		SELECT id, agent_version FROM servers WHERE secret_key = $1
+	`, serverKey).Scan(&serverID, &oldVersion)
+	
+	if err != nil {
+		return fmt.Errorf("failed to get server info: %v", err)
+	}
+
+	// Update current version in servers table
+	_, err = tx.Exec(`
+		UPDATE servers 
+		SET agent_version = $1, updated_at = NOW()
+		WHERE secret_key = $2
+	`, newVersion, serverKey)
+	
+	if err != nil {
+		return fmt.Errorf("failed to update agent version: %v", err)
+	}
+
+	// Record update history
+	_, err = tx.Exec(`
+		INSERT INTO agent_updates (server_id, old_version, new_version, updated_by_user_id, update_source)
+		VALUES ($1, $2, $3, $4, $5)
+	`, serverID, oldVersion, newVersion, userID, updateSource)
+	
+	if err != nil {
+		return fmt.Errorf("failed to record update history: %v", err)
+	}
+
+	return tx.Commit()
+}
+
+// recordAgentUpdateFailure records failed update attempt
+func (b *Bot) recordAgentUpdateFailure(serverKey, targetVersion, errorMessage string, userID int64) error {
+	// Get server ID
+	var serverID string
+	err := b.db.QueryRow(`
+		SELECT id FROM servers WHERE secret_key = $1
+	`, serverKey).Scan(&serverID)
+	
+	if err != nil {
+		return fmt.Errorf("failed to get server info: %v", err)
+	}
+
+	// Record failed update
+	_, err = b.db.Exec(`
+		INSERT INTO agent_updates (server_id, new_version, update_status, error_message, updated_by_user_id)
+		VALUES ($1, $2, 'failed', $3, $4)
+	`, serverID, targetVersion, errorMessage, userID)
+	
+	if err != nil {
+		return fmt.Errorf("failed to record update failure: %v", err)
+	}
+
+	return nil
+}
+
+// getAgentUpdateHistory returns update history for a server
+func (b *Bot) getAgentUpdateHistory(serverKey string, limit int) ([]map[string]interface{}, error) {
+	query := `
+		SELECT 
+			au.new_version,
+			au.old_version,
+			au.update_status,
+			au.error_message,
+			au.updated_at,
+			u.first_name,
+			u.username
+		FROM agent_updates au
+		LEFT JOIN users u ON au.updated_by_user_id = u.telegram_id
+		WHERE au.server_id = (SELECT id FROM servers WHERE secret_key = $1)
+		ORDER BY au.updated_at DESC
+		LIMIT $2
+	`
+
+	rows, err := b.db.Query(query, serverKey, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var history []map[string]interface{}
+	for rows.Next() {
+		var newVersion, oldVersion, updateStatus, errorMessage, firstName, username string
+		var updatedAt time.Time
+		
+		err := rows.Scan(
+			&newVersion, &oldVersion, &updateStatus, &errorMessage,
+			&updatedAt, &firstName, &username,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		history = append(history, map[string]interface{}{
+			"new_version":    newVersion,
+			"old_version":    oldVersion,
+			"status":         updateStatus,
+			"error_message":  errorMessage,
+			"updated_at":     updatedAt,
+			"updated_by":     firstName,
+			"username":       username,
+		})
+	}
+
+	return history, nil
 }

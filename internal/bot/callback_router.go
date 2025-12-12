@@ -120,7 +120,7 @@ func (b *Bot) handleCallbackQuery(query *tgbotapi.CallbackQuery) error {
 	case "status":
 		response = b.executeStatusCommand(servers, serverNum)
 	case "update":
-		response = b.executeUpdateCommand(servers, serverNum, query.Message.Chat.ID)
+		response = b.executeUpdateCommand(servers, serverNum, query.Message.Chat.ID, query.From.ID)
 	default:
 		response = "❌ Unknown command"
 	}

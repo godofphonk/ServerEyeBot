@@ -206,7 +206,7 @@ func (b *Bot) executeStatusCommand(servers []ServerInfo, serverNum string) strin
 }
 
 // executeUpdateCommand executes update command for specific server
-func (b *Bot) executeUpdateCommand(servers []ServerInfo, serverNum string, chatID int64) string {
+func (b *Bot) executeUpdateCommand(servers []ServerInfo, serverNum string, chatID int64, userID int64) string {
 	server, err := selectServer(servers, serverNum)
 	if err != nil {
 		return "❌ Invalid server selection"
@@ -215,7 +215,7 @@ func (b *Bot) executeUpdateCommand(servers []ServerInfo, serverNum string, chatI
 	// Send "updating" message
 	b.sendMessage(chatID, fmt.Sprintf("🔄 Updating agent on %s...\n\nThis may take a minute.", server.Name))
 
-	updateResp, err := b.updateAgent(server.Key, "latest")
+	updateResp, err := b.updateAgent(server.Key, "latest", userID)
 	if err != nil {
 		return fmt.Sprintf("❌ Failed to update agent on %s: %v", server.Name, err)
 	}

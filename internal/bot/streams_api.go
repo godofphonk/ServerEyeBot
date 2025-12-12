@@ -10,6 +10,40 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// sendCommandViaKafka sends command using Kafka producer and waits for response via response consumer
+func (b *Bot) sendCommandViaKafka(ctx context.Context, serverKey string, command *protocol.Message, timeout time.Duration) (*protocol.Message, error) {
+	if b.commandProducer == nil {
+		return nil, fmt.Errorf("Kafka command producer not initialized")
+	}
+	if b.responseConsumer == nil {
+		return nil, fmt.Errorf("Kafka response consumer not initialized")
+	}
+
+	b.logger.Debug("Sending command via Kafka",
+		StringField("command_id", command.ID),
+		StringField("command_type", string(command.Type)),
+		StringField("server_key", serverKey),
+	)
+
+	// Send command via Kafka producer
+	if err := b.commandProducer.SendCommand(ctx, serverKey, command); err != nil {
+		return nil, fmt.Errorf("failed to send command via Kafka: %w", err)
+	}
+
+	// Wait for response via response consumer
+	response, err := b.responseConsumer.WaitForResponse(command.ID, timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to receive response from Kafka: %w", err)
+	}
+
+	b.logger.Debug("Received response via Kafka",
+		StringField("command_id", command.ID),
+		StringField("response_type", string(response.Type)),
+	)
+
+	return response, nil
+}
+
 // sendCommandViaStreams sends command using PURE Streams
 func (b *Bot) sendCommandViaStreams(ctx context.Context, serverKey string, command *protocol.Message, timeout time.Duration) (*protocol.Message, error) {
 	// Use PURE Streams if available

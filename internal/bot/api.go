@@ -280,12 +280,12 @@ func (b *Bot) getNetworkInfo(serverKey string) (*protocol.NetworkInfo, error) {
 }
 
 // updateAgent requests agent to update itself
-func (b *Bot) updateAgent(serverKey string, version string) (*protocol.UpdateAgentResponse, error) {
+func (b *Bot) updateAgent(serverKey string, version string, userID int64) (*protocol.UpdateAgentResponse, error) {
 	payload := &protocol.UpdateAgentPayload{
 		Version: version,
 	}
 
-	return sendCommandAndParse[protocol.UpdateAgentResponse](
+	response, err := sendCommandAndParse[protocol.UpdateAgentResponse](
 		b,
 		serverKey,
 		protocol.TypeUpdateAgent,
@@ -293,4 +293,21 @@ func (b *Bot) updateAgent(serverKey string, version string) (*protocol.UpdateAge
 		protocol.TypeUpdateAgentResponse,
 		30*time.Second,
 	)
+
+	if err != nil {
+		// Record failed update attempt
+		if recordErr := b.recordAgentUpdateFailure(serverKey, version, err.Error(), userID); recordErr != nil {
+			b.logger.Error("Failed to record update failure", recordErr)
+		}
+		return nil, err
+	}
+
+	// Record successful update
+	if response.Success && response.NewVersion != "" {
+		if recordErr := b.updateAgentVersion(serverKey, response.NewVersion, userID, "manual"); recordErr != nil {
+			b.logger.Error("Failed to update agent version", recordErr)
+		}
+	}
+
+	return response, nil
 }
