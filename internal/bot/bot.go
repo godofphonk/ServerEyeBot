@@ -52,6 +52,9 @@ type Bot struct {
 	// Graceful shutdown
 	wg       sync.WaitGroup
 	shutdown chan struct{}
+
+	// Ensure single initialization
+	telegramStarted sync.Once
 }
 
 // BotOptions contains options for creating a new bot instance
@@ -309,25 +312,35 @@ func (b *Bot) Start() error {
 
 // startTelegramHandler starts the Telegram updates handler
 func (b *Bot) startTelegramHandler() error {
-	if b.telegramAPI == nil {
-		return NewTelegramError("Telegram API not initialized", nil)
-	}
+	var initErr error
 
-	// Configure updates
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
+	b.telegramStarted.Do(func() {
+		b.logger.Info("Initializing Telegram handler (sync.Once)")
+		if b.telegramAPI == nil {
+			initErr = NewTelegramError("Telegram API not initialized", nil)
+			return
+		}
 
-	updates := b.telegramAPI.GetUpdatesChan(u)
+		// Configure updates
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 60
 
-	// Start handling updates in a separate goroutine
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
-		b.handleUpdates(updates)
-	}()
+		updates := b.telegramAPI.GetUpdatesChan(u)
 
-	b.logger.Info("Telegram updates handler started")
-	return nil
+		// Debug: log that we got the updates channel
+		b.logger.Info("Got updates channel from Telegram API")
+
+		// Start handling updates in a separate goroutine
+		b.wg.Add(1)
+		go func() {
+			defer b.wg.Done()
+			b.handleUpdates(updates)
+		}()
+
+		b.logger.Info("Telegram updates handler started")
+	})
+
+	return initErr
 }
 
 // setupGracefulShutdown sets up graceful shutdown handling
@@ -408,6 +421,19 @@ func (b *Bot) handleUpdates(updates tgbotapi.UpdatesChannel) {
 				b.logger.Info("Updates channel closed, stopping handler")
 				return
 			}
+
+			// Debug log to confirm update received
+			b.logger.Info("Received update",
+				IntField("update_id", update.UpdateID),
+				StringField("type", func() string {
+					if update.Message != nil {
+						return "message"
+					}
+					if update.CallbackQuery != nil {
+						return "callback"
+					}
+					return "unknown"
+				}()))
 
 			// Process update with timeout and error handling
 			ctx, cancel := context.WithTimeout(b.ctx, 30*time.Second)
