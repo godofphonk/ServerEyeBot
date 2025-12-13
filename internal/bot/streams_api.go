@@ -93,3 +93,7 @@ func (b *Bot) sendCommandAndParse(ctx context.Context, serverKey string, command
 
 	return nil
 }
+
+func (b *Bot) sendCommandViaStreams(ctx context.Context, serverKey string, command *protocol.Message, timeout time.Duration) (*protocol.Message, error) {
+	return nil, fmt.Errorf("streams transport is disabled; kafka must be enabled")
+}

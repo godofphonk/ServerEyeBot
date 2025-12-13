@@ -56,17 +56,12 @@ func (b *Bot) getContainersViaKafka(serverKey string) (*protocol.ContainersPaylo
 	defer cancel()
 
 	command := protocol.NewMessage(protocol.TypeGetContainers, nil)
-	response, err := b.sendCommandViaKafka(ctx, serverKey, command, 30*time.Second)
-	if err != nil {
+	var containers protocol.ContainersPayload
+	if err := b.sendCommandAndParse(ctx, serverKey, command, 30*time.Second, &containers); err != nil {
 		return nil, err
 	}
 
-	result, err := protocol.ParsePayload[protocol.ContainersPayload](response)
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
+	return &containers, nil
 }
 
 // formatContainers formats containers list for display
@@ -128,7 +123,7 @@ func (b *Bot) getMemoryInfo(serverKey string) (*protocol.MemoryInfo, error) {
 
 	// Fallback to requesting from agent
 	var memory protocol.MemoryInfo
-	return &memory, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetMemoryInfo, nil), 10*time.Second, &memory)
+	return &memory, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetMemoryInfo, nil), 30*time.Second, &memory)
 }
 
 // getDiskInfo requests disk information from agent via Kafka or cached metrics
@@ -160,25 +155,25 @@ func (b *Bot) getDiskInfo(serverKey string) (*protocol.DiskInfoPayload, error) {
 
 	// Fallback to requesting from agent
 	var disk protocol.DiskInfoPayload
-	return &disk, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetDiskInfo, nil), 10*time.Second, &disk)
+	return &disk, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetDiskInfo, nil), 30*time.Second, &disk)
 }
 
 // getUptime requests uptime information from agent via Kafka
 func (b *Bot) getUptime(serverKey string) (*protocol.UptimeInfo, error) {
 	var uptime protocol.UptimeInfo
-	return &uptime, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetUptime, nil), 10*time.Second, &uptime)
+	return &uptime, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetUptime, nil), 30*time.Second, &uptime)
 }
 
 // getProcesses requests processes information from agent via Kafka
 func (b *Bot) getProcesses(serverKey string) (*protocol.ProcessesPayload, error) {
 	var processes protocol.ProcessesPayload
-	return &processes, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetProcesses, nil), 10*time.Second, &processes)
+	return &processes, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetProcesses, nil), 30*time.Second, &processes)
 }
 
 // getNetworkInfo requests network information from agent via Kafka
 func (b *Bot) getNetworkInfo(serverKey string) (*protocol.NetworkInfo, error) {
 	var network protocol.NetworkInfo
-	return &network, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetNetworkInfo, nil), 10*time.Second, &network)
+	return &network, b.sendCommandAndParse(context.Background(), serverKey, protocol.NewMessage(protocol.TypeGetNetworkInfo, nil), 30*time.Second, &network)
 }
 
 // updateAgent requests agent to update itself
