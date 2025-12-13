@@ -170,7 +170,7 @@ func (c *ResponseConsumer) consumeMessage() error {
 }
 
 // WaitForResponse ожидает ответ для конкретной команды
-func (c *ResponseConsumer) WaitForResponse(commandID string, timeout time.Duration) (*protocol.Message, error) {
+func (c *ResponseConsumer) WaitForResponse(ctx context.Context, commandID string, timeout time.Duration) (*protocol.Message, error) {
 	// Создаем канал для ответа
 	responseChan := make(chan *protocol.Message, 1)
 
@@ -181,13 +181,13 @@ func (c *ResponseConsumer) WaitForResponse(commandID string, timeout time.Durati
 	defer c.waiters.Delete(commandID)
 
 	// Ждем ответ
-	ctx, cancel := context.WithTimeout(c.ctx, timeout)
+	waitCtx, cancel := context.WithTimeout(c.ctx, timeout)
 	defer cancel()
 
 	select {
 	case response := <-responseChan:
 		return response, nil
-	case <-ctx.Done():
+	case <-waitCtx.Done():
 		return nil, fmt.Errorf("timeout waiting for response")
 	}
 }

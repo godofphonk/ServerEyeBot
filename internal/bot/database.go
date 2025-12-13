@@ -3,7 +3,6 @@ package bot
 import (
 	"database/sql"
 	"fmt"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -275,7 +274,7 @@ func (b *Bot) connectServerWithName(userID int64, serverKey, serverName string) 
 	if keysDB == nil {
 		keysDB = b.db
 	}
-	
+
 	// First, check if the key exists in generated_keys table using keysDB
 	var keyExists bool
 	err := keysDB.QueryRow(`SELECT EXISTS(SELECT 1 FROM generated_keys WHERE secret_key = $1)`, serverKey).Scan(&keyExists)
@@ -402,13 +401,13 @@ func (b *Bot) keyExists(secretKey string) (bool, error) {
 			SELECT 1 FROM generated_keys WHERE secret_key = $1
 		)
 	`
-	
+
 	// Use keysDB for key validation
 	db := b.keysDB
 	if db == nil {
 		db = b.db
 	}
-	
+
 	err := db.QueryRow(query, secretKey).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("failed to check key existence: %w", err)
@@ -459,7 +458,7 @@ func (b *Bot) updateAgentVersion(serverKey, newVersion string, userID int64, upd
 	err = tx.QueryRow(`
 		SELECT id, agent_version FROM servers WHERE secret_key = $1
 	`, serverKey).Scan(&serverID, &oldVersion)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to get server info: %v", err)
 	}
@@ -470,7 +469,7 @@ func (b *Bot) updateAgentVersion(serverKey, newVersion string, userID int64, upd
 		SET agent_version = $1, updated_at = NOW()
 		WHERE secret_key = $2
 	`, newVersion, serverKey)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to update agent version: %v", err)
 	}
@@ -480,7 +479,7 @@ func (b *Bot) updateAgentVersion(serverKey, newVersion string, userID int64, upd
 		INSERT INTO agent_updates (server_id, old_version, new_version, updated_by_user_id, update_source)
 		VALUES ($1, $2, $3, $4, $5)
 	`, serverID, oldVersion, newVersion, userID, updateSource)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to record update history: %v", err)
 	}
@@ -495,7 +494,7 @@ func (b *Bot) recordAgentUpdateFailure(serverKey, targetVersion, errorMessage st
 	err := b.db.QueryRow(`
 		SELECT id FROM servers WHERE secret_key = $1
 	`, serverKey).Scan(&serverID)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to get server info: %v", err)
 	}
@@ -505,7 +504,7 @@ func (b *Bot) recordAgentUpdateFailure(serverKey, targetVersion, errorMessage st
 		INSERT INTO agent_updates (server_id, new_version, update_status, error_message, updated_by_user_id)
 		VALUES ($1, $2, 'failed', $3, $4)
 	`, serverID, targetVersion, errorMessage, userID)
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to record update failure: %v", err)
 	}
@@ -513,17 +512,18 @@ func (b *Bot) recordAgentUpdateFailure(serverKey, targetVersion, errorMessage st
 	return nil
 }
 
-// getAgentUpdateHistory returns update history for a server
+// getAgentUpdateHistory returns update history for a server (unused, kept for reference)
+/*
 func (b *Bot) getAgentUpdateHistory(serverKey string, limit int) ([]map[string]interface{}, error) {
 	query := `
-		SELECT 
+		SELECT
 			au.new_version,
-			au.old_version,
+			COALESCE(au.old_version, '') as old_version,
 			au.update_status,
-			au.error_message,
+			COALESCE(au.error_message, '') as error_message,
 			au.updated_at,
-			u.first_name,
-			u.username
+			COALESCE(u.first_name, '') as first_name,
+			COALESCE(u.username, '') as username
 		FROM agent_updates au
 		LEFT JOIN users u ON au.updated_by_user_id = u.telegram_id
 		WHERE au.server_id = (SELECT id FROM servers WHERE secret_key = $1)
@@ -541,7 +541,7 @@ func (b *Bot) getAgentUpdateHistory(serverKey string, limit int) ([]map[string]i
 	for rows.Next() {
 		var newVersion, oldVersion, updateStatus, errorMessage, firstName, username string
 		var updatedAt time.Time
-		
+
 		err := rows.Scan(
 			&newVersion, &oldVersion, &updateStatus, &errorMessage,
 			&updatedAt, &firstName, &username,
@@ -551,15 +551,16 @@ func (b *Bot) getAgentUpdateHistory(serverKey string, limit int) ([]map[string]i
 		}
 
 		history = append(history, map[string]interface{}{
-			"new_version":    newVersion,
-			"old_version":    oldVersion,
-			"status":         updateStatus,
-			"error_message":  errorMessage,
-			"updated_at":     updatedAt,
-			"updated_by":     firstName,
-			"username":       username,
+			"new_version":   newVersion,
+			"old_version":   oldVersion,
+			"status":        updateStatus,
+			"error_message": errorMessage,
+			"updated_at":    updatedAt,
+			"updated_by":    firstName,
+			"username":      username,
 		})
 	}
 
 	return history, nil
 }
+*/

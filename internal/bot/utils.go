@@ -46,7 +46,7 @@ func (b *Bot) sendMessage(chatID int64, text string) {
 func (b *Bot) getServerFromCommand(command string, servers []string) (string, error) {
 	// Check if servers list is empty
 	if len(servers) == 0 {
-		return "", fmt.Errorf("❌ No servers found. Please add a server first using /add command.")
+		return "", fmt.Errorf("no servers found. Please add a server first using /add command")
 	}
 
 	parts := strings.Fields(command)
@@ -54,7 +54,7 @@ func (b *Bot) getServerFromCommand(command string, servers []string) (string, er
 	// If no server number specified, use first server
 	if len(parts) == 1 {
 		if len(servers) > 1 {
-			return "", fmt.Errorf("❌ Multiple servers found. Please use the command again to see server selection buttons.\n\nUse /servers to see your servers.")
+			return "", fmt.Errorf("multiple servers found. Please use the command again to see server selection buttons. Use /servers to see your servers")
 		}
 		return servers[0], nil
 	}
@@ -63,11 +63,11 @@ func (b *Bot) getServerFromCommand(command string, servers []string) (string, er
 	if len(parts) >= 2 {
 		serverNum, err := strconv.Atoi(parts[1])
 		if err != nil {
-			return "", fmt.Errorf("❌ Invalid server number. Use /servers to see available servers.")
+			return "", fmt.Errorf("invalid server number. Use /servers to see available servers")
 		}
 
 		if serverNum < 1 || serverNum > len(servers) {
-			return "", fmt.Errorf("❌ Server number %d not found. You have %d servers.\nUse /servers to see available servers.", serverNum, len(servers))
+			return "", fmt.Errorf("server number %d not found. You have %d servers. Use /servers to see available servers", serverNum, len(servers))
 		}
 
 		return servers[serverNum-1], nil

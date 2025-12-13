@@ -13,12 +13,12 @@ import (
 
 // CommandProducer отправляет команды в Kafka
 type CommandProducer struct {
-	writer        *kafka.Writer
-	logger        *logrus.Logger
-	brokers       []string
-	compression   string
-	batchSize     int
-	batchTimeout  time.Duration
+	// writer        *kafka.Writer  // unused, using embedded writer from kafka.WriterConfig
+	logger       *logrus.Logger
+	brokers      []string
+	compression  string
+	batchSize    int
+	batchTimeout time.Duration
 }
 
 // CommandProducerConfig конфигурация producer
@@ -79,12 +79,13 @@ func (p *CommandProducer) SendCommand(ctx context.Context, serverKey string, com
 
 	// Создаем writer для этого топика
 	writer := &kafka.Writer{
-		Addr:         kafka.TCP(p.brokers...),
-		Topic:        topic,
-		Balancer:     &kafka.Hash{},
-		BatchSize:    p.batchSize,
-		BatchTimeout: p.batchTimeout,
-		Async:        false, // Для команд используем синхронную отправку
+		Addr:                   kafka.TCP(p.brokers...),
+		Topic:                  topic,
+		Balancer:               &kafka.Hash{},
+		BatchSize:              p.batchSize,
+		BatchTimeout:           p.batchTimeout,
+		Async:                  false, // Для команд используем синхронную отправку
+		AllowAutoTopicCreation: true,
 	}
 
 	// Устанавливаем compression

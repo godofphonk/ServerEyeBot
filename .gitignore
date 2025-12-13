@@ -28,6 +28,8 @@ build/
 .env.local
 config.yaml
 bot-config.yaml
+bot-config-*.yaml
+config-*.yaml
 
 # Log files
 *.log

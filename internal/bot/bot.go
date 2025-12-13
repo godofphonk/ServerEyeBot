@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"sync"
 	"syscall"
 	"time"
@@ -16,7 +17,6 @@ import (
 	"github.com/servereye/servereyebot/internal/config"
 	"github.com/servereye/servereyebot/pkg/kafka"
 	"github.com/servereye/servereyebot/pkg/redis"
-	"github.com/servereye/servereyebot/pkg/redis/streams"
 	"github.com/sirupsen/logrus"
 )
 
@@ -35,14 +35,14 @@ type Bot struct {
 	metrics     Metrics
 
 	// Direct database access for internal methods
-	db      *sql.DB
-	keysDB  *sql.DB
+	db     *sql.DB
+	keysDB *sql.DB
 
 	// Concrete Redis client for Streams
 	redisRawClient *redis.Client
 
-	// Streams client for new architecture
-	streamsClient *streams.Client
+	// Streams client for new architecture (deprecated, using Kafka now)
+	// streamsClient *streams.Client
 
 	// Kafka components for unified messaging
 	commandProducer  *kafka.CommandProducer
@@ -121,15 +121,7 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 
 	logger.WithField("username", tgBot.Self.UserName).Info("Telegram bot authorized")
 
-	// Initialize Redis client
-	redisClient, err := redis.NewClient(redis.Config{
-		Address:  cfg.Redis.Address,
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
-	}, logger)
-	if err != nil {
-		return nil, NewRedisError("failed to create Redis client", err)
-	}
+	// Redis client removed - using Kafka only
 
 	// Initialize database connection
 	db, err := sql.Open("postgres", cfg.Database.URL)
@@ -171,7 +163,6 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 
 	// Create adapters
 	dbAdapter := NewDatabaseAdapter(db, tempBot)
-	redisAdapter := NewRedisAdapter(redisClient)
 	agentAdapter := NewAgentClientAdapter(tempBot)
 
 	// Create bot with real implementations
@@ -179,7 +170,7 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 		Config:      cfg,
 		Logger:      NewStructuredLogger(logger),
 		TelegramAPI: tgBot,
-		RedisClient: redisAdapter,
+		RedisClient: nil, // Redis removed - using Kafka only
 		Database:    dbAdapter,
 		AgentClient: agentAdapter,
 		Validator:   NewInputValidator(),
@@ -195,26 +186,9 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 	agentAdapter.bot = bot
 	bot.db = db
 	bot.keysDB = keysDB
-	bot.redisRawClient = redisClient // Store raw client for Streams
+	// Redis raw client removed - using Kafka only
 
-	// Initialize Streams client
-	streamsConfig := &streams.Config{
-		Addr:            cfg.Redis.Address,
-		Password:        cfg.Redis.Password,
-		DB:              cfg.Redis.DB,
-		MaxRetries:      3,
-		BlockDuration:   5 * time.Second,
-		BatchSize:       10,
-		StreamMaxLength: 1000,
-	}
-
-	streamsClient, err := streams.NewClient(streamsConfig, logger)
-	if err != nil {
-		logger.WithError(err).Warn("Failed to create Streams client, will use Pub/Sub")
-	} else {
-		bot.streamsClient = streamsClient
-		logger.Info("Redis Streams client initialized")
-	}
+	// Streams client removed - using Kafka only
 
 	// Initialize Kafka components if enabled
 	var useKafka bool
@@ -226,7 +200,7 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 		// Initialize command producer
 		producerConfig := kafka.CommandProducerConfig{
 			Brokers:      cfg.Kafka.Brokers,
-			Topic:        "servereye.commands",
+			Topic:        "servereye.commands", // Will be overridden per command with server-specific topic
 			Compression:  cfg.Kafka.Compression,
 			BatchSize:    1, // Send commands immediately
 			BatchTimeout: 10 * time.Millisecond,
@@ -265,7 +239,7 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 			cfg.Kafka.Brokers,
 			"metrics",
 			"bot-metrics-consumers",
-			redisClient.GetRawClient(),
+			nil, // Redis client removed - using Kafka only
 			logger,
 		)
 		if err != nil {
@@ -290,21 +264,24 @@ func (b *Bot) Start() error {
 
 	// Start Kafka response consumer if enabled
 	if b.useKafka && b.responseConsumer != nil {
-		if err := b.responseConsumer.Start(); err != nil {
-			b.logger.Error("Failed to start Kafka response consumer", err)
-			return fmt.Errorf("failed to start Kafka response consumer: %v", err)
-		}
+		go func() {
+			if err := b.responseConsumer.Start(); err != nil {
+				b.logger.Error("Failed to start Kafka response consumer", err)
+			}
+		}()
+		b.logger.Info("Starting Kafka response consumer")
 		b.logger.Info("Kafka response consumer started")
 	}
 
 	// Start Kafka metrics consumer if enabled
 	if b.useKafka && b.metricsConsumer != nil {
-		if err := b.metricsConsumer.Start(); err != nil {
-			b.logger.Error("Failed to start Kafka metrics consumer", err)
-			// Non-critical error, continue without metrics caching
-		} else {
-			b.logger.Info("Kafka metrics consumer started")
-		}
+		go func() {
+			if err := b.metricsConsumer.Start(); err != nil {
+				b.logger.Error("Failed to start Kafka metrics consumer", err)
+			}
+		}()
+		b.logger.Info("Starting Kafka metrics consumer")
+		b.logger.Info("Kafka metrics consumer started")
 	}
 
 	// Initialize database schema if database is available
@@ -467,9 +444,11 @@ func (b *Bot) processUpdate(ctx context.Context, update tgbotapi.Update) {
 	// Recover from panics to prevent bot crash
 	defer func() {
 		if r := recover(); r != nil {
+			stack := debug.Stack()
 			b.logger.Error("Panic recovered in update processing",
 				fmt.Errorf("panic: %v", r),
-				StringField("update_id", fmt.Sprintf("%d", update.UpdateID)))
+				StringField("update_id", fmt.Sprintf("%d", update.UpdateID)),
+				StringField("stack", string(stack)))
 
 			if b.metrics != nil {
 				b.metrics.IncrementError("PANIC_RECOVERED")
