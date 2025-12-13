@@ -10,17 +10,9 @@ import (
 // BotConfig конфигурация бота
 type BotConfig struct {
 	Telegram TelegramConfig `yaml:"telegram"`
-	Redis    RedisConfig    `yaml:"redis"`
 	Database DatabaseConfig `yaml:"database"`
 	Kafka    KafkaConfig    `yaml:"kafka,omitempty"`
 	Logging  LoggingConfig  `yaml:"logging"`
-}
-
-// RedisConfig конфигурация Redis
-type RedisConfig struct {
-	Address  string `yaml:"address"`
-	Password string `yaml:"password"`
-	DB       int    `yaml:"db"`
 }
 
 // LoggingConfig конфигурация логирования
@@ -36,8 +28,8 @@ type TelegramConfig struct {
 
 // DatabaseConfig конфигурация базы данных
 type DatabaseConfig struct {
-	URL         string `yaml:"url"`
-	KeysURL     string `yaml:"keys_url"`
+	URL     string `yaml:"url"`
+	KeysURL string `yaml:"keys_url"`
 }
 
 // KafkaConfig конфигурация Kafka
@@ -80,9 +72,6 @@ func LoadBotConfig(filepath string) (*BotConfig, error) {
 func (c *BotConfig) validate() error {
 	if c.Telegram.Token == "" {
 		return fmt.Errorf("токен Telegram бота не может быть пустым")
-	}
-	if c.Redis.Address == "" {
-		return fmt.Errorf("адрес Redis не может быть пустым")
 	}
 	if c.Database.URL == "" {
 		return fmt.Errorf("URL базы данных не может быть пустым")

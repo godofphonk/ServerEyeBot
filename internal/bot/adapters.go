@@ -6,7 +6,6 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/servereye/servereyebot/pkg/protocol"
-	"github.com/servereye/servereyebot/pkg/redis"
 	"github.com/sirupsen/logrus"
 )
 
@@ -109,59 +108,6 @@ func (d *DatabaseAdapter) InitSchema() error {
 // Close closes the database connection
 func (d *DatabaseAdapter) Close() error {
 	return d.db.Close()
-}
-
-// RedisAdapter adapts redis.Client to our RedisClient interface
-type RedisAdapter struct {
-	client *redis.Client
-}
-
-// NewRedisAdapter creates a new Redis adapter
-func NewRedisAdapter(client *redis.Client) *RedisAdapter {
-	return &RedisAdapter{client: client}
-}
-
-// Subscribe subscribes to a Redis channel
-func (r *RedisAdapter) Subscribe(ctx context.Context, channel string) (Subscription, error) {
-	sub, err := r.client.Subscribe(ctx, channel)
-	if err != nil {
-		return nil, err
-	}
-	return &SubscriptionAdapter{sub: sub}, nil
-}
-
-// Publish publishes a message to a Redis channel
-func (r *RedisAdapter) Publish(ctx context.Context, channel string, message []byte) error {
-	return r.client.Publish(ctx, channel, message)
-}
-
-// Close closes the Redis connection
-func (r *RedisAdapter) Close() error {
-	return r.client.Close()
-}
-
-// SubscriptionAdapter adapts redis subscription to our Subscription interface
-type SubscriptionAdapter struct {
-	sub interface {
-		Channel() <-chan []byte
-		Close() error
-	}
-}
-
-// Channel returns the subscription channel
-func (s *SubscriptionAdapter) Channel() <-chan []byte {
-	return s.sub.Channel()
-}
-
-// Close closes the subscription
-func (s *SubscriptionAdapter) Close() error {
-	defer func() {
-		if r := recover(); r != nil {
-			// Log and ignore panic from closing already closed channel
-			_ = r // Explicitly mark as intentionally ignored
-		}
-	}()
-	return s.sub.Close()
 }
 
 // AgentClientAdapter adapts existing agent methods to AgentClient interface

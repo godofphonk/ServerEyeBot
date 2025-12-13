@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-
 func TestLoadBotConfig_Valid(t *testing.T) {
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "bot.yaml")
@@ -14,11 +13,6 @@ func TestLoadBotConfig_Valid(t *testing.T) {
 	validConfig := `
 telegram:
   token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-
-redis:
-  address: "localhost:6379"
-  password: ""
-  db: 0
 
 database:
   url: "postgres://user:pass@localhost/dbname"
@@ -40,9 +34,6 @@ logging:
 	if config.Telegram.Token != "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" {
 		t.Errorf("Telegram.Token = %v", config.Telegram.Token)
 	}
-	if config.Redis.Address != "localhost:6379" {
-		t.Errorf("Redis.Address = %v, want localhost:6379", config.Redis.Address)
-	}
 	if config.Database.URL != "postgres://user:pass@localhost/dbname" {
 		t.Errorf("Database.URL = %v", config.Database.URL)
 	}
@@ -58,7 +49,6 @@ func TestBotConfigValidation(t *testing.T) {
 			name: "valid config",
 			config: BotConfig{
 				Telegram: TelegramConfig{Token: "test_token"},
-				Redis:    RedisConfig{Address: "localhost:6379"},
 				Database: DatabaseConfig{URL: "postgres://localhost/db"},
 			},
 			wantErr: false,
@@ -66,15 +56,6 @@ func TestBotConfigValidation(t *testing.T) {
 		{
 			name: "missing telegram token",
 			config: BotConfig{
-				Redis:    RedisConfig{Address: "localhost:6379"},
-				Database: DatabaseConfig{URL: "postgres://localhost/db"},
-			},
-			wantErr: true,
-		},
-		{
-			name: "missing redis address",
-			config: BotConfig{
-				Telegram: TelegramConfig{Token: "test_token"},
 				Database: DatabaseConfig{URL: "postgres://localhost/db"},
 			},
 			wantErr: true,
@@ -83,7 +64,6 @@ func TestBotConfigValidation(t *testing.T) {
 			name: "missing database url",
 			config: BotConfig{
 				Telegram: TelegramConfig{Token: "test_token"},
-				Redis:    RedisConfig{Address: "localhost:6379"},
 			},
 			wantErr: true,
 		},
@@ -106,8 +86,6 @@ func TestLoadBotConfig_InvalidYAML(t *testing.T) {
 	invalidYAML := `
 telegram:
   token: "broken
-redis:
-  - invalid structure
 `
 
 	if err := os.WriteFile(configPath, []byte(invalidYAML), 0600); err != nil {

@@ -16,7 +16,6 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/servereye/servereyebot/internal/config"
 	"github.com/servereye/servereyebot/pkg/kafka"
-	"github.com/servereye/servereyebot/pkg/redis"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,7 +27,6 @@ type Bot struct {
 	// Dependencies (interfaces for better testability)
 	logger      Logger
 	telegramAPI TelegramAPI
-	redisClient RedisClient
 	database    Database
 	agentClient AgentClient
 	validator   Validator
@@ -37,9 +35,6 @@ type Bot struct {
 	// Direct database access for internal methods
 	db     *sql.DB
 	keysDB *sql.DB
-
-	// Concrete Redis client for Streams
-	redisRawClient *redis.Client
 
 	// Streams client for new architecture (deprecated, using Kafka now)
 	// streamsClient *streams.Client
@@ -64,7 +59,6 @@ type BotOptions struct {
 	Config      *config.BotConfig
 	Logger      Logger
 	TelegramAPI TelegramAPI
-	RedisClient RedisClient
 	Database    Database
 	AgentClient AgentClient
 	Validator   Validator
@@ -83,7 +77,6 @@ func New(opts BotOptions) (*Bot, error) {
 		config:      opts.Config,
 		logger:      opts.Logger,
 		telegramAPI: opts.TelegramAPI,
-		redisClient: opts.RedisClient,
 		database:    opts.Database,
 		agentClient: opts.AgentClient,
 		validator:   opts.Validator,
@@ -170,7 +163,6 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 		Config:      cfg,
 		Logger:      NewStructuredLogger(logger),
 		TelegramAPI: tgBot,
-		RedisClient: nil, // Redis removed - using Kafka only
 		Database:    dbAdapter,
 		AgentClient: agentAdapter,
 		Validator:   NewInputValidator(),
@@ -186,9 +178,6 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 	agentAdapter.bot = bot
 	bot.db = db
 	bot.keysDB = keysDB
-	// Redis raw client removed - using Kafka only
-
-	// Streams client removed - using Kafka only
 
 	// Initialize Kafka components if enabled
 	var useKafka bool
@@ -239,7 +228,6 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 			cfg.Kafka.Brokers,
 			"metrics",
 			"bot-metrics-consumers",
-			nil, // Redis client removed - using Kafka only
 			logger,
 		)
 		if err != nil {
@@ -386,12 +374,6 @@ func (b *Bot) Stop() error {
 	if b.useKafka && b.metricsConsumer != nil {
 		if err := b.metricsConsumer.Stop(); err != nil {
 			b.logger.Error("Error stopping Kafka metrics consumer", err)
-		}
-	}
-
-	if b.redisClient != nil {
-		if err := b.redisClient.Close(); err != nil {
-			b.logger.Error("Error closing Redis connection", err)
 		}
 	}
 

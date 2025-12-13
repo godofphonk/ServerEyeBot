@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
 	"github.com/sirupsen/logrus"
 )
@@ -24,7 +23,6 @@ var metricTopics = []string{
 // KafkaConsumer handles consuming metrics from Kafka
 type KafkaConsumer struct {
 	readers []*kafka.Reader // Multiple readers for different topics
-	redis   *redis.Client
 	logger  *logrus.Logger
 	ctx     context.Context
 	cancel  context.CancelFunc
@@ -41,7 +39,7 @@ type MetricData struct {
 }
 
 // NewKafkaConsumer creates a new Kafka consumer that can handle multiple metrics topics
-func NewKafkaConsumer(kafkaBrokers []string, topicPrefix, groupID string, redisClient *redis.Client, logger *logrus.Logger) (*KafkaConsumer, error) {
+func NewKafkaConsumer(kafkaBrokers []string, topicPrefix, groupID string, logger *logrus.Logger) (*KafkaConsumer, error) {
 	if len(kafkaBrokers) == 0 {
 		return nil, fmt.Errorf("kafka brokers list is empty")
 	}
@@ -70,7 +68,6 @@ func NewKafkaConsumer(kafkaBrokers []string, topicPrefix, groupID string, redisC
 
 	kc := &KafkaConsumer{
 		readers: readers,
-		redis:   redisClient,
 		logger:  logger,
 		ctx:     ctx,
 		cancel:  cancel,
@@ -164,9 +161,7 @@ func (kc *KafkaConsumer) handleMessage(msg *kafka.Message) {
 			Unit:      "", // Unit not provided in agent format
 			Timestamp: agentMetric.Timestamp,
 		}
-		if err := kc.cacheMetric(metric); err != nil {
-			kc.logger.Errorf("Failed to cache metric: %v", err)
-		}
+		_ = metric // Metric created but not used (Redis cache removed)
 
 	case map[string]interface{}:
 		// Complex metric like memory info
@@ -179,106 +174,13 @@ func (kc *KafkaConsumer) handleMessage(msg *kafka.Message) {
 					Unit:      "", // Unit could be inferred from key name
 					Timestamp: agentMetric.Timestamp,
 				}
-				if err := kc.cacheMetric(metric); err != nil {
-					kc.logger.Errorf("Failed to cache metric: %v", err)
-				}
+				_ = metric // Metric created but not used (Redis cache removed)
 			}
 		}
 
 	default:
 		kc.logger.Warnf("Unsupported metric value type: %T", v)
 	}
-}
-
-// cacheMetric stores the metric in Redis for fast access
-func (kc *KafkaConsumer) cacheMetric(metric MetricData) error {
-	// Use a hash for each server's metrics
-	hashKey := fmt.Sprintf("metrics:%s", metric.ServerKey)
-
-	// Store individual metric
-	field := fmt.Sprintf("%s:%s", metric.Name, metric.Unit)
-	value := fmt.Sprintf("%.2f", metric.Value)
-
-	// Set the metric value with expiration (e.g., 5 minutes)
-	pipe := kc.redis.Pipeline()
-	pipe.HSet(kc.ctx, hashKey, field, value)
-	pipe.HSet(kc.ctx, hashKey, fmt.Sprintf("%s:timestamp", field), metric.Timestamp.Format(time.RFC3339))
-	pipe.Expire(kc.ctx, hashKey, 5*time.Minute)
-
-	// Also store in a sorted set for latest metrics per server type
-	zKey := fmt.Sprintf("latest_metrics:%s", metric.Name)
-	zScore := float64(metric.Timestamp.Unix())
-	zMember := fmt.Sprintf("%s:%s", metric.ServerKey, metric.Unit)
-	pipe.ZAdd(kc.ctx, zKey, redis.Z{Score: zScore, Member: zMember})
-	pipe.Expire(kc.ctx, zKey, 24*time.Hour)
-
-	// Keep only last 100 entries per metric type
-	pipe.ZRemRangeByRank(kc.ctx, zKey, 0, -101)
-
-	_, err := pipe.Exec(kc.ctx)
-	return err
-}
-
-// GetCachedMetric retrieves a cached metric from Redis
-func (kc *KafkaConsumer) GetCachedMetric(serverKey, metricName, unit string) (float64, *time.Time, error) {
-	// Check if Redis client is available
-	if kc.redis == nil {
-		return 0, nil, fmt.Errorf("redis cache not available in Kafka mode")
-	}
-
-	hashKey := fmt.Sprintf("metrics:%s", serverKey)
-	field := fmt.Sprintf("%s:%s", metricName, unit)
-
-	pipe := kc.redis.Pipeline()
-	valueCmd := pipe.HGet(kc.ctx, hashKey, field)
-	timestampCmd := pipe.HGet(kc.ctx, hashKey, fmt.Sprintf("%s:timestamp", field))
-
-	_, err := pipe.Exec(kc.ctx)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	value, err := valueCmd.Float64()
-	if err != nil {
-		return 0, nil, err
-	}
-
-	timestampStr, err := timestampCmd.Result()
-	if err != nil {
-		return 0, nil, err
-	}
-
-	timestamp, err := time.Parse(time.RFC3339, timestampStr)
-	if err != nil {
-		return 0, nil, err
-	}
-
-	return value, &timestamp, nil
-}
-
-// GetAllCachedMetrics retrieves all cached metrics for a server
-func (kc *KafkaConsumer) GetAllCachedMetrics(serverKey string) (map[string]float64, error) {
-	hashKey := fmt.Sprintf("metrics:%s", serverKey)
-
-	// Get all metrics (excluding timestamps)
-	data, err := kc.redis.HGetAll(kc.ctx, hashKey).Result()
-	if err != nil {
-		return nil, err
-	}
-
-	metrics := make(map[string]float64)
-	for key, value := range data {
-		// Skip timestamp fields
-		if len(key) > 9 && key[len(key)-9:] == ":timestamp" {
-			continue
-		}
-
-		if floatValue, err := parseFloat64(value); err == nil {
-			metrics[key] = floatValue
-		}
-	}
-
-	return metrics, nil
 }
 
 // Helper functions

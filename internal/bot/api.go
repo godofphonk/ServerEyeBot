@@ -11,19 +11,9 @@ import (
 
 // getCPUTemperature requests CPU temperature from agent via Kafka or cached metrics
 func (b *Bot) getCPUTemperature(serverKey string) (float64, error) {
-	// Try to get from Kafka cache first if available
+	// Try Kafka directly (no Redis cache available)
 	if b.useKafka && b.metricsConsumer != nil {
-		temp, timestamp, err := b.metricsConsumer.GetCachedMetric(serverKey, "cpu_temperature", "")
-		if err == nil {
-			// Check if cached data is recent (less than 2 minutes old)
-			if timestamp != nil && time.Since(*timestamp) < 2*time.Minute {
-				b.logger.Debug("Using cached CPU temperature")
-				return temp, nil
-			}
-		} else if err != nil && !strings.Contains(err.Error(), "Redis cache not available") {
-			// Log unexpected errors but continue to Kafka
-			b.logger.Error("Failed to get cached temperature, using Kafka", err)
-		}
+		b.logger.Debug("Using Kafka for CPU temperature")
 	}
 
 	// Fallback to requesting from agent
@@ -103,22 +93,9 @@ func (b *Bot) formatContainers(containers *protocol.ContainersPayload) string {
 
 // getMemoryInfo requests memory information from agent via Streams or cached metrics
 func (b *Bot) getMemoryInfo(serverKey string) (*protocol.MemoryInfo, error) {
-	// Try to get from Kafka cache first if available
+	// Try Kafka directly (no Redis cache available)
 	if b.useKafka && b.metricsConsumer != nil {
-		// Get individual memory metrics
-		total, _, err1 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_total", "")
-		available, _, err2 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_available", "")
-		used, _, err3 := b.metricsConsumer.GetCachedMetric(serverKey, "memory_used", "")
-
-		// If we have at least some cached data, use it
-		if err1 == nil || err2 == nil || err3 == nil {
-			b.logger.Debug("Using cached memory info")
-			return &protocol.MemoryInfo{
-				Total:     uint64(total),
-				Available: uint64(available),
-				Used:      uint64(used),
-			}, nil
-		}
+		b.logger.Debug("Using Kafka for memory info")
 	}
 
 	// Fallback to requesting from agent
@@ -128,29 +105,9 @@ func (b *Bot) getMemoryInfo(serverKey string) (*protocol.MemoryInfo, error) {
 
 // getDiskInfo requests disk information from agent via Kafka or cached metrics
 func (b *Bot) getDiskInfo(serverKey string) (*protocol.DiskInfoPayload, error) {
-	// Try to get from Kafka cache first if available
+	// Try Kafka directly (no Redis cache available)
 	if b.useKafka && b.metricsConsumer != nil {
-		// Get disk usage metrics
-		used, _, err1 := b.metricsConsumer.GetCachedMetric(serverKey, "disk_used", "")
-		total, _, err2 := b.metricsConsumer.GetCachedMetric(serverKey, "disk_total", "")
-
-		// If we have disk metrics, construct response
-		if err1 == nil && err2 == nil && total > 0 {
-			b.logger.Debug("Using cached disk info")
-			percent := (used / total) * 100
-			return &protocol.DiskInfoPayload{
-				Disks: []protocol.DiskInfo{
-					{
-						Path:        "/", // Default path
-						Total:       uint64(total),
-						Used:        uint64(used),
-						Free:        uint64(total - used),
-						UsedPercent: percent,
-						Filesystem:  "unknown", // Not cached
-					},
-				},
-			}, nil
-		}
+		b.logger.Debug("Using Kafka for disk info")
 	}
 
 	// Fallback to requesting from agent

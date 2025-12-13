@@ -15,19 +15,6 @@ type TelegramAPI interface {
 	StopReceivingUpdates()
 }
 
-// RedisClient defines the interface for Redis operations
-type RedisClient interface {
-	Subscribe(ctx context.Context, channel string) (Subscription, error)
-	Publish(ctx context.Context, channel string, message []byte) error
-	Close() error
-}
-
-// Subscription defines the interface for Redis subscriptions
-type Subscription interface {
-	Channel() <-chan []byte
-	Close() error
-}
-
 // Database defines the interface for database operations
 type Database interface {
 	RegisterUser(user *tgbotapi.User) error
