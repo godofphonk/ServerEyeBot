@@ -17,7 +17,6 @@ import (
 	"github.com/servereye/servereyebot/internal/config"
 	"github.com/servereye/servereyebot/pkg/kafka"
 	"github.com/servereye/servereyebot/pkg/redis"
-	"github.com/servereye/servereyebot/pkg/redis/streams"
 	"github.com/sirupsen/logrus"
 )
 
@@ -42,8 +41,8 @@ type Bot struct {
 	// Concrete Redis client for Streams
 	redisRawClient *redis.Client
 
-	// Streams client for new architecture
-	streamsClient *streams.Client
+	// Streams client for new architecture (deprecated, using Kafka now)
+	// streamsClient *streams.Client
 
 	// Kafka components for unified messaging
 	commandProducer  *kafka.CommandProducer

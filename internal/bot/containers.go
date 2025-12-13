@@ -156,18 +156,19 @@ func (b *Bot) formatContainerActionResponse(response *protocol.ContainerActionRe
 func (b *Bot) validateContainerAction(containerID, action string) error {
 	// Проверяем длину ID контейнера
 	if len(containerID) < 3 {
-		return fmt.Errorf("Container ID/name too short (minimum 3 characters)")
+		return fmt.Errorf("container ID/name too short (minimum 3 characters)")
 	}
 
 	if len(containerID) > 64 {
-		return fmt.Errorf("Container ID/name too long (maximum 64 characters)")
+		return fmt.Errorf("container ID/name too long (maximum 64 characters)")
 	}
 
 	// Проверяем символы в ID/имени
 	for _, char := range containerID {
-		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.') {
-			return fmt.Errorf("Container ID/name contains invalid characters. Only alphanumeric, hyphens, underscores and dots allowed")
+		isValid := (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' || char == '.'
+		if !isValid {
+			return fmt.Errorf("container ID/name contains invalid characters. only alphanumeric, hyphens, underscores and dots allowed")
 		}
 	}
 
@@ -180,7 +181,7 @@ func (b *Bot) validateContainerAction(containerID, action string) error {
 	}
 
 	if !validActions[action] {
-		return fmt.Errorf("Invalid action '%s'. Allowed: start, stop, restart, remove", action)
+		return fmt.Errorf("invalid action '%s'. allowed: start, stop, restart, remove", action)
 	}
 
 	// Проверяем черный список контейнеров для stop/restart (не для remove)
@@ -196,7 +197,7 @@ func (b *Bot) validateContainerAction(containerID, action string) error {
 		containerLower := strings.ToLower(containerID)
 		for _, protected := range protectedContainers {
 			if containerLower == strings.ToLower(protected) {
-				return fmt.Errorf("Container '%s' is critical infrastructure and cannot be stopped/restarted", containerID)
+				return fmt.Errorf("container '%s' is critical infrastructure and cannot be stopped/restarted", containerID)
 			}
 		}
 	}

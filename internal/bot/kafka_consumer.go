@@ -223,7 +223,7 @@ func (kc *KafkaConsumer) cacheMetric(metric MetricData) error {
 func (kc *KafkaConsumer) GetCachedMetric(serverKey, metricName, unit string) (float64, *time.Time, error) {
 	// Check if Redis client is available
 	if kc.redis == nil {
-		return 0, nil, fmt.Errorf("Redis cache not available in Kafka mode")
+		return 0, nil, fmt.Errorf("redis cache not available in Kafka mode")
 	}
 
 	hashKey := fmt.Sprintf("metrics:%s", serverKey)

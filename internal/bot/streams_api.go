@@ -12,10 +12,10 @@ import (
 // sendCommandViaKafka sends command using Kafka producer and waits for response via response consumer
 func (b *Bot) sendCommandViaKafka(ctx context.Context, serverKey string, command *protocol.Message, timeout time.Duration) (*protocol.Message, error) {
 	if b.commandProducer == nil {
-		return nil, fmt.Errorf("Kafka command producer not initialized")
+		return nil, fmt.Errorf("kafka command producer not initialized")
 	}
 	if b.responseConsumer == nil {
-		return nil, fmt.Errorf("Kafka response consumer not initialized")
+		return nil, fmt.Errorf("kafka response consumer not initialized")
 	}
 
 	b.logger.Info("KAFKA: Sending command",

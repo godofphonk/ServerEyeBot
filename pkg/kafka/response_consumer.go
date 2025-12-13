@@ -181,13 +181,13 @@ func (c *ResponseConsumer) WaitForResponse(ctx context.Context, commandID string
 	defer c.waiters.Delete(commandID)
 
 	// Ждем ответ
-	ctx, cancel := context.WithTimeout(c.ctx, timeout)
+	waitCtx, cancel := context.WithTimeout(c.ctx, timeout)
 	defer cancel()
 
 	select {
 	case response := <-responseChan:
 		return response, nil
-	case <-ctx.Done():
+	case <-waitCtx.Done():
 		return nil, fmt.Errorf("timeout waiting for response")
 	}
 }
