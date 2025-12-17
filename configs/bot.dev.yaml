@@ -10,6 +10,7 @@ redis:
 
 database:
   url: "${DATABASE_URL:-postgres://postgres:postgres@localhost:5432/servereye_bot_dev?sslmode=disable}"
+  keys_url: "${KEYS_DATABASE_URL}"
 
 kafka:
   enabled: ${KAFKA_ENABLED:-false}
