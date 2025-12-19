@@ -280,7 +280,7 @@ func (b *Bot) connectServerWithName(userID int64, serverKey, serverName string) 
 
 	// First, check if the key exists in generated_keys table using keysDB
 	var keyExists bool
-	err := keysDB.QueryRow(`SELECT EXISTS(SELECT 1 FROM generated_keys WHERE secret_key = $1)`, serverKey).Scan(&keyExists)
+	err := keysDB.QueryRow(`SELECT EXISTS(SELECT 1 FROM generated_keys WHERE secret_key = $1 AND status = 'active')`, serverKey).Scan(&keyExists)
 	if err != nil {
 		return fmt.Errorf("failed to validate key: %w", err)
 	}
@@ -403,7 +403,7 @@ func (b *Bot) keyExists(secretKey string) (bool, error) {
 	var exists bool
 	query := `
 		SELECT EXISTS(
-			SELECT 1 FROM generated_keys WHERE secret_key = $1
+			SELECT 1 FROM generated_keys WHERE secret_key = $1 AND status = 'active'
 		)
 	`
 

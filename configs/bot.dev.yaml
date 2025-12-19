@@ -13,10 +13,10 @@ database:
   keys_url: "${KEYS_DATABASE_URL}"
 
 kafka:
-  enabled: ${KAFKA_ENABLED:-false}
+  enabled: ${KAFKA_ENABLED:-true}
   brokers:
-    - "localhost:9092"
-  topic_prefix: "${KAFKA_TOPIC_PREFIX:-metrics}"
+    - "192.168.0.104:9093"
+  topic_prefix: "${KAFKA_TOPIC_PREFIX:-servereye}"
   compression: "${KAFKA_COMPRESSION:-snappy}"
   max_attempts: ${KAFKA_MAX_ATTEMPTS:-3}
   batch_size: ${KAFKA_BATCH_SIZE:-100}
