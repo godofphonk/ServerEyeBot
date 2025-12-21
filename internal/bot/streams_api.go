@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/servereye/servereyebot/pkg/protocol"
@@ -68,19 +69,10 @@ func (b *Bot) sendCommandAndParse(ctx context.Context, serverKey string, command
 		return fmt.Errorf("bot instance is nil")
 	}
 
-	// Try HTTP API first for worldwide deployment
+	// Send command via HTTP API only (worldwide deployment)
 	response, err := b.sendCommandViaHTTP(ctx, serverKey, command, timeout)
 	if err != nil {
-		b.logger.Warn("Failed to send command via HTTP, falling back to Kafka",
-			StringField("error", err.Error()),
-			StringField("command_id", command.ID),
-			StringField("server_key", serverKey))
-
-		// Fallback to Kafka if available
-		response, err = b.sendCommandViaKafka(ctx, serverKey, command, timeout)
-		if err != nil {
-			return fmt.Errorf("failed to send command via both HTTP and Kafka: %w", err)
-		}
+		return fmt.Errorf("failed to send command via HTTP: %w", err)
 	}
 
 	// Defensive check for response
@@ -116,7 +108,7 @@ func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command 
 	// Prepare command request
 	cmdRequest := map[string]interface{}{
 		"server_key": serverKey,
-		"type":       string(command.Type),
+		"command":    string(command.Type),
 		"payload":    command.Payload,
 	}
 
@@ -132,12 +124,13 @@ func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command 
 	}
 
 	// Send command to backend API
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.servereye.dev/v1/commands", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("BACKEND_URL")+"/v1/commands", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-API-Key", os.Getenv("API_KEY"))
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -155,10 +148,10 @@ func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command 
 		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
+	// Parse response - backend returns response directly (it blocks until agent responds)
 	var apiResponse struct {
-		Success bool        `json:"success"`
-		Data    interface{} `json:"data"`
+		Success bool                   `json:"success"`
+		Data    map[string]interface{} `json:"data"`
 	}
 
 	if err := json.Unmarshal(body, &apiResponse); err != nil {
@@ -169,8 +162,12 @@ func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command 
 		return nil, fmt.Errorf("API returned error: %v", apiResponse.Data)
 	}
 
-	// Wait for response via polling
-	return b.waitForHTTPResponse(ctx, command.ID, timeout)
+	// Convert backend response to protocol.Message
+	return &protocol.Message{
+		ID:      command.ID,
+		Type:    command.Type,
+		Payload: apiResponse.Data,
+	}, nil
 }
 
 // waitForHTTPResponse polls for command response via backend API
@@ -194,7 +191,7 @@ func (b *Bot) waitForHTTPResponse(ctx context.Context, commandID string, timeout
 			return nil, fmt.Errorf("timeout waiting for response")
 		case <-ticker.C:
 			// Check for response
-			req, err := http.NewRequestWithContext(pollCtx, "GET", fmt.Sprintf("https://api.servereye.dev/v1/commands/response/%s", commandID), nil)
+			req, err := http.NewRequestWithContext(pollCtx, "GET", fmt.Sprintf("%s/v1/commands/response/%s", os.Getenv("BACKEND_URL"), commandID), nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create request: %w", err)
 			}
