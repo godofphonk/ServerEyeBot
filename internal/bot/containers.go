@@ -79,7 +79,7 @@ func (b *Bot) sendContainerAction(serverKey string, messageType protocol.Message
 	ctx, cancel := context.WithTimeout(b.ctx, timeout)
 	defer cancel()
 
-	resp, err := b.sendCommandViaStreams(ctx, serverKey, message, timeout)
+	resp, err := b.sendCommandViaHTTP(ctx, serverKey, message, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func (b *Bot) createContainerFromTemplate(userID int64, _ string, template strin
 	ctx, cancel := context.WithTimeout(b.ctx, 120*time.Second)
 	defer cancel()
 
-	resp, err := b.sendCommandViaStreams(ctx, serverKey, cmd, 120*time.Second)
+	resp, err := b.sendCommandViaHTTP(ctx, serverKey, cmd, 120*time.Second)
 	if err != nil {
 		b.logger.Error("Error occurred", err)
 		return fmt.Sprintf("❌ Failed to create container: %v", err)
