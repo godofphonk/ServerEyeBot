@@ -56,6 +56,10 @@ func (b *Bot) handleContainerAction(userID int64, containerID, action string) st
 		Action:        action,
 	}
 
+	// Debug logging to see payload before sending
+	b.logger.Info(fmt.Sprintf("handleContainerAction - server_key: %s, action: %s, containerID: %s, payload: %+v",
+		serverKey, action, containerID, payload))
+
 	response, err := b.sendContainerAction(serverKey, messageType, payload)
 	if err != nil {
 		b.logger.Error("Error occurred", err)
