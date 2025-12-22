@@ -109,7 +109,7 @@ func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command 
 	cmdRequest := map[string]interface{}{
 		"server_key": serverKey,
 		"command":    string(command.Type),
-		"payload":    command.Payload,
+		"params":     command.Payload,
 	}
 
 	// Convert to JSON
@@ -123,8 +123,8 @@ func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command 
 		Timeout: timeout,
 	}
 
-	// Send command to backend API - POST to create command
-	req, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("BACKEND_URL")+"/v1/commands/create", bytes.NewBuffer(jsonData))
+	// Send command to backend API
+	req, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("BACKEND_URL")+"/v1/commands", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
