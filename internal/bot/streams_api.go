@@ -163,9 +163,18 @@ func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command 
 	}
 
 	// Convert backend response to protocol.Message
+	// For container commands, return ContainerActionResponse type
+	responseType := command.Type
+	if command.Type == protocol.TypeStartContainer ||
+		command.Type == protocol.TypeStopContainer ||
+		command.Type == protocol.TypeRestartContainer ||
+		command.Type == protocol.TypeRemoveContainer {
+		responseType = protocol.TypeContainerActionResponse
+	}
+
 	return &protocol.Message{
 		ID:      command.ID,
-		Type:    command.Type,
+		Type:    responseType,
 		Payload: apiResponse.Data,
 	}, nil
 }
