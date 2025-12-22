@@ -79,6 +79,9 @@ func (b *Bot) sendContainerAction(serverKey string, messageType protocol.Message
 	ctx, cancel := context.WithTimeout(b.ctx, timeout)
 	defer cancel()
 
+	// Debug logging to see payload before sending
+	b.logger.Info(fmt.Sprintf("Sending container command via HTTP - server_key: %s, message_type: %s, payload: %+v", serverKey, string(message.Type), message.Payload))
+
 	resp, err := b.sendCommandViaHTTP(ctx, serverKey, message, timeout)
 	if err != nil {
 		return nil, err
