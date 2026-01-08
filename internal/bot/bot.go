@@ -15,7 +15,8 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	_ "github.com/lib/pq"
 	"github.com/servereye/servereyebot/internal/config"
-	"github.com/servereye/servereyebot/pkg/kafka"
+
+	// "github.com/servereye/servereyebot/pkg/kafka"
 	"github.com/sirupsen/logrus"
 )
 
@@ -184,67 +185,70 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 
 	// Initialize Kafka components if enabled
 	var useKafka bool
-	var commandProducer *kafka.CommandProducer
-	var responseConsumer *kafka.ResponseConsumer
+	// var commandProducer *kafka.CommandProducer
+	// var responseConsumer *kafka.ResponseConsumer
 	var metricsConsumer *KafkaConsumer
 
-	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
-		// Initialize command producer
-		producerConfig := kafka.CommandProducerConfig{
-			Brokers:      cfg.Kafka.Brokers,
-			Topic:        "servereye.commands", // Will be overridden per command with server-specific topic
-			Compression:  cfg.Kafka.Compression,
-			BatchSize:    1, // Send commands immediately
-			BatchTimeout: 10 * time.Millisecond,
-		}
+	if false && cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
+		// Kafka initialization disabled
+		/*
+			// Initialize command producer
+			producerConfig := kafka.CommandProducerConfig{
+				Brokers:      cfg.Kafka.Brokers,
+				Topic:        "servereye.commands", // Will be overridden per command with server-specific topic
+				Compression:  cfg.Kafka.Compression,
+				BatchSize:    1, // Send commands immediately
+				BatchTimeout: 10 * time.Millisecond,
+			}
 
-		producer, err := kafka.NewCommandProducer(producerConfig, logger)
-		if err != nil {
-			logger.WithError(err).Error("Failed to create Kafka command producer")
-		} else {
-			commandProducer = producer
-			logger.Info("Kafka command producer initialized")
-		}
+			producer, err := kafka.NewCommandProducer(producerConfig, logger)
+			if err != nil {
+				logger.WithError(err).Error("Failed to create Kafka command producer")
+			} else {
+				commandProducer = producer
+				logger.Info("Kafka command producer initialized")
+			}
 
-		// Initialize response consumer
-		consumerConfig := kafka.ResponseConsumerConfig{
-			Brokers:        cfg.Kafka.Brokers,
-			GroupID:        "bot-response-handlers",
-			ServerKey:      "bot",                 // Bot receives responses for all servers
-			Topic:          "servereye.responses", // Базовый топик, будет использовать wildcard
-			MinBytes:       10e3,                  // 10KB
-			MaxBytes:       10e6,                  // 10MB
-			CommitInterval: time.Second,
-		}
+			// Initialize response consumer
+			consumerConfig := kafka.ResponseConsumerConfig{
+				Brokers:        cfg.Kafka.Brokers,
+				GroupID:        "bot-response-handlers",
+				ServerKey:      "bot",                 // Bot receives responses for all servers
+				Topic:          "servereye.responses", // Базовый топик, будет использовать wildcard
+				MinBytes:       10e3,                  // 10KB
+				MaxBytes:       10e6,                  // 10MB
+				CommitInterval: time.Second,
+			}
 
-		consumer, err := kafka.NewResponseConsumer(consumerConfig, logger)
-		if err != nil {
-			logger.WithError(err).Error("Failed to create Kafka response consumer")
-		} else {
-			responseConsumer = consumer
-			useKafka = true
-			logger.Info("Kafka response consumer initialized")
-		}
+			consumer, err := kafka.NewResponseConsumer(consumerConfig, logger)
+			if err != nil {
+				logger.WithError(err).Error("Failed to create Kafka response consumer")
+			} else {
+				responseConsumer = consumer
+				useKafka = true
+				logger.Info("Kafka response consumer initialized")
+			}
 
-		// Initialize metrics consumer
-		metricsConsumer, err = NewKafkaConsumer(
-			cfg.Kafka.Brokers,
-			"metrics",
-			"bot-metrics-consumers",
-			logger,
-		)
-		if err != nil {
-			logger.WithError(err).Error("Failed to create Kafka metrics consumer")
-		} else {
-			logger.Info("Kafka metrics consumer initialized")
-		}
+			// Initialize metrics consumer
+			metricsConsumer, err = NewKafkaConsumer(
+				cfg.Kafka.Brokers,
+				"metrics",
+				"bot-metrics-consumers",
+				logger,
+			)
+			if err != nil {
+				logger.WithError(err).Error("Failed to create Kafka metrics consumer")
+			} else {
+				logger.Info("Kafka metrics consumer initialized")
+			}
+		*/
 	}
 
 	// Set Kafka components
-	bot.commandProducer = commandProducer
-	bot.responseConsumer = responseConsumer
+	// bot.commandProducer = commandProducer
+	// bot.responseConsumer = responseConsumer
 	bot.metricsConsumer = metricsConsumer
-	bot.useKafka = useKafka
+	bot.useKafka = false // Force disable Kafka
 
 	return bot, nil
 }
