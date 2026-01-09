@@ -124,7 +124,7 @@ func (b *Bot) sendCommandViaBackendHTTP(ctx context.Context, serverKey string, c
 	}
 
 	// Send command to backend API
-	req, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("BACKEND_URL")+"/v1/commands", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, "POST", os.Getenv("BACKEND_URL")+"/api/v1/commands", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
