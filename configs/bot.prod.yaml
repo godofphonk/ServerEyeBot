@@ -10,6 +10,7 @@ redis:
 
 database:
   url: "${DATABASE_URL}"
+  keys_url: "${KEYS_DATABASE_URL}"
 
 kafka:
   enabled: ${KAFKA_ENABLED:-true}

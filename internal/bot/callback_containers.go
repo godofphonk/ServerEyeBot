@@ -48,10 +48,12 @@ func (b *Bot) handleContainerActionCallback(query *tgbotapi.CallbackQuery) error
 	}
 
 	// Show processing message
+	// Escape underscores in container name to avoid Telegram parse errors
+	escapedContainerID := strings.ReplaceAll(containerID, "_", "\\_")
 	editMsg := tgbotapi.NewEditMessageText(
 		query.Message.Chat.ID,
 		query.Message.MessageID,
-		fmt.Sprintf(processingMsg, containerID),
+		fmt.Sprintf(processingMsg, escapedContainerID),
 	)
 	editMsg.ParseMode = "Markdown"
 	if _, err := b.telegramAPI.Send(editMsg); err != nil {

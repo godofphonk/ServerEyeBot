@@ -22,6 +22,9 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bot ./cmd/bot
 # Final stage - use golang alpine as we already have it
 FROM golang:1.24-alpine
 
+# Install curl for health checks
+RUN apk add --no-cache curl
+
 # Create non-root user
 RUN adduser -D -s /bin/sh servereye
 

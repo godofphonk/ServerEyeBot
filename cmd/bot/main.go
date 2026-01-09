@@ -97,11 +97,9 @@ func setupLogger(level string) *logrus.Logger {
 // loadConfigFromEnv loads configuration from environment variables
 func loadConfigFromEnv() (*config.BotConfig, error) {
 	telegramToken := os.Getenv("TELEGRAM_TOKEN")
-	redisAddress := os.Getenv("REDIS_ADDRESS")
-	redisPassword := os.Getenv("REDIS_PASSWORD")
 	databaseURL := os.Getenv("DATABASE_URL")
 	keysDatabaseURL := os.Getenv("KEYS_DATABASE_URL")
-	
+
 	// Kafka configuration
 	kafkaEnabledStr := os.Getenv("KAFKA_ENABLED")
 	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
@@ -111,22 +109,11 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 	kafkaBatchSizeStr := os.Getenv("KAFKA_BATCH_SIZE")
 	kafkaRequiredAcksStr := os.Getenv("KAFKA_REQUIRED_ACKS")
 
-	// Support legacy REDIS_URL format
-	if redisAddress == "" {
-		redisURL := os.Getenv("REDIS_URL")
-		if redisURL != "" {
-			// Extract address from redis://host:port format
-			if len(redisURL) > 8 && redisURL[:8] == "redis://" {
-				redisAddress = redisURL[8:]
-			}
-		}
-	}
-	
 	// Parse Kafka configuration
 	var kafkaConfig config.KafkaConfig
 	if kafkaEnabledStr == "true" || kafkaEnabledStr == "1" {
 		kafkaConfig.Enabled = true
-		
+
 		// Set defaults for optional fields
 		if kafkaBrokers == "" {
 			kafkaConfig.Brokers = []string{"localhost:9092"}
@@ -134,19 +121,19 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 			// Split comma-separated brokers
 			kafkaConfig.Brokers = strings.Split(kafkaBrokers, ",")
 		}
-		
+
 		if kafkaTopicPrefix == "" {
 			kafkaConfig.TopicPrefix = "metrics"
 		} else {
 			kafkaConfig.TopicPrefix = kafkaTopicPrefix
 		}
-		
+
 		if kafkaCompression == "" {
 			kafkaConfig.Compression = "snappy"
 		} else {
 			kafkaConfig.Compression = kafkaCompression
 		}
-		
+
 		if kafkaMaxAttemptsStr != "" {
 			if maxAttempts, err := strconv.Atoi(kafkaMaxAttemptsStr); err == nil {
 				kafkaConfig.MaxAttempts = maxAttempts
@@ -156,7 +143,7 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 		} else {
 			kafkaConfig.MaxAttempts = 3
 		}
-		
+
 		if kafkaBatchSizeStr != "" {
 			if batchSize, err := strconv.Atoi(kafkaBatchSizeStr); err == nil {
 				kafkaConfig.BatchSize = batchSize
@@ -166,7 +153,7 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 		} else {
 			kafkaConfig.BatchSize = 100
 		}
-		
+
 		if kafkaRequiredAcksStr != "" {
 			if requiredAcks, err := strconv.Atoi(kafkaRequiredAcksStr); err == nil {
 				kafkaConfig.RequiredAcks = requiredAcks
@@ -178,18 +165,13 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 		}
 	}
 
-	if telegramToken == "" || redisAddress == "" || databaseURL == "" {
+	if telegramToken == "" || databaseURL == "" {
 		return nil, fmt.Errorf("missing required environment variables")
 	}
 
 	return &config.BotConfig{
 		Telegram: config.TelegramConfig{
 			Token: telegramToken,
-		},
-		Redis: config.RedisConfig{
-			Address:  redisAddress,
-			Password: redisPassword,
-			DB:       0,
 		},
 		Database: config.DatabaseConfig{
 			URL:     databaseURL,

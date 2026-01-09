@@ -15,8 +15,8 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	_ "github.com/lib/pq"
 	"github.com/servereye/servereyebot/internal/config"
-	"github.com/servereye/servereyebot/pkg/kafka"
-	"github.com/servereye/servereyebot/pkg/redis"
+
+	// "github.com/servereye/servereyebot/pkg/kafka"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,7 +28,6 @@ type Bot struct {
 	// Dependencies (interfaces for better testability)
 	logger      Logger
 	telegramAPI TelegramAPI
-	redisClient RedisClient
 	database    Database
 	agentClient AgentClient
 	validator   Validator
@@ -38,17 +37,14 @@ type Bot struct {
 	db     *sql.DB
 	keysDB *sql.DB
 
-	// Concrete Redis client for Streams
-	redisRawClient *redis.Client
-
-	// Streams client for new architecture (deprecated, using Kafka now)
+	// Streams client for new architecture (deprecated, using HTTP now)
 	// streamsClient *streams.Client
 
-	// Kafka components for unified messaging
-	commandProducer  *kafka.CommandProducer
-	responseConsumer *kafka.ResponseConsumer
-	metricsConsumer  *KafkaConsumer
-	useKafka         bool
+	// Kafka components disabled - using HTTP instead
+	// commandProducer  *kafka.CommandProducer
+	// responseConsumer *kafka.ResponseConsumer
+	metricsConsumer *KafkaConsumer
+	useKafka        bool
 
 	// Context management
 	ctx    context.Context
@@ -57,6 +53,9 @@ type Bot struct {
 	// Graceful shutdown
 	wg       sync.WaitGroup
 	shutdown chan struct{}
+
+	// Ensure single initialization
+	telegramStarted sync.Once
 }
 
 // BotOptions contains options for creating a new bot instance
@@ -64,7 +63,6 @@ type BotOptions struct {
 	Config      *config.BotConfig
 	Logger      Logger
 	TelegramAPI TelegramAPI
-	RedisClient RedisClient
 	Database    Database
 	AgentClient AgentClient
 	Validator   Validator
@@ -83,7 +81,6 @@ func New(opts BotOptions) (*Bot, error) {
 		config:      opts.Config,
 		logger:      opts.Logger,
 		telegramAPI: opts.TelegramAPI,
-		redisClient: opts.RedisClient,
 		database:    opts.Database,
 		agentClient: opts.AgentClient,
 		validator:   opts.Validator,
@@ -170,7 +167,6 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 		Config:      cfg,
 		Logger:      NewStructuredLogger(logger),
 		TelegramAPI: tgBot,
-		RedisClient: nil, // Redis removed - using Kafka only
 		Database:    dbAdapter,
 		AgentClient: agentAdapter,
 		Validator:   NewInputValidator(),
@@ -186,74 +182,73 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 	agentAdapter.bot = bot
 	bot.db = db
 	bot.keysDB = keysDB
-	// Redis raw client removed - using Kafka only
-
-	// Streams client removed - using Kafka only
 
 	// Initialize Kafka components if enabled
-	var useKafka bool
-	var commandProducer *kafka.CommandProducer
-	var responseConsumer *kafka.ResponseConsumer
+	// var useKafka bool
+	// var commandProducer *kafka.CommandProducer
+	// var responseConsumer *kafka.ResponseConsumer
 	var metricsConsumer *KafkaConsumer
 
-	if cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
-		// Initialize command producer
-		producerConfig := kafka.CommandProducerConfig{
-			Brokers:      cfg.Kafka.Brokers,
-			Topic:        "servereye.commands", // Will be overridden per command with server-specific topic
-			Compression:  cfg.Kafka.Compression,
-			BatchSize:    1, // Send commands immediately
-			BatchTimeout: 10 * time.Millisecond,
-		}
+	if false && cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
+		// Kafka initialization disabled
+		/*
+			// Initialize command producer
+			producerConfig := kafka.CommandProducerConfig{
+				Brokers:      cfg.Kafka.Brokers,
+				Topic:        "servereye.commands", // Will be overridden per command with server-specific topic
+				Compression:  cfg.Kafka.Compression,
+				BatchSize:    1, // Send commands immediately
+				BatchTimeout: 10 * time.Millisecond,
+			}
 
-		producer, err := kafka.NewCommandProducer(producerConfig, logger)
-		if err != nil {
-			logger.WithError(err).Error("Failed to create Kafka command producer")
-		} else {
-			commandProducer = producer
-			logger.Info("Kafka command producer initialized")
-		}
+			producer, err := kafka.NewCommandProducer(producerConfig, logger)
+			if err != nil {
+				logger.WithError(err).Error("Failed to create Kafka command producer")
+			} else {
+				commandProducer = producer
+				logger.Info("Kafka command producer initialized")
+			}
 
-		// Initialize response consumer
-		consumerConfig := kafka.ResponseConsumerConfig{
-			Brokers:        cfg.Kafka.Brokers,
-			GroupID:        "bot-response-handlers",
-			ServerKey:      "bot",                 // Bot receives responses for all servers
-			Topic:          "servereye.responses", // Базовый топик, будет использовать wildcard
-			MinBytes:       10e3,                  // 10KB
-			MaxBytes:       10e6,                  // 10MB
-			CommitInterval: time.Second,
-		}
+			// Initialize response consumer
+			consumerConfig := kafka.ResponseConsumerConfig{
+				Brokers:        cfg.Kafka.Brokers,
+				GroupID:        "bot-response-handlers",
+				ServerKey:      "bot",                 // Bot receives responses for all servers
+				Topic:          "servereye.responses", // Базовый топик, будет использовать wildcard
+				MinBytes:       10e3,                  // 10KB
+				MaxBytes:       10e6,                  // 10MB
+				CommitInterval: time.Second,
+			}
 
-		consumer, err := kafka.NewResponseConsumer(consumerConfig, logger)
-		if err != nil {
-			logger.WithError(err).Error("Failed to create Kafka response consumer")
-		} else {
-			responseConsumer = consumer
-			useKafka = true
-			logger.Info("Kafka response consumer initialized")
-		}
+			consumer, err := kafka.NewResponseConsumer(consumerConfig, logger)
+			if err != nil {
+				logger.WithError(err).Error("Failed to create Kafka response consumer")
+			} else {
+				responseConsumer = consumer
+				useKafka = true
+				logger.Info("Kafka response consumer initialized")
+			}
 
-		// Initialize metrics consumer
-		metricsConsumer, err = NewKafkaConsumer(
-			cfg.Kafka.Brokers,
-			"metrics",
-			"bot-metrics-consumers",
-			nil, // Redis client removed - using Kafka only
-			logger,
-		)
-		if err != nil {
-			logger.WithError(err).Error("Failed to create Kafka metrics consumer")
-		} else {
-			logger.Info("Kafka metrics consumer initialized")
-		}
+			// Initialize metrics consumer
+			metricsConsumer, err = NewKafkaConsumer(
+				cfg.Kafka.Brokers,
+				"metrics",
+				"bot-metrics-consumers",
+				logger,
+			)
+			if err != nil {
+				logger.WithError(err).Error("Failed to create Kafka metrics consumer")
+			} else {
+				logger.Info("Kafka metrics consumer initialized")
+			}
+		*/
 	}
 
 	// Set Kafka components
-	bot.commandProducer = commandProducer
-	bot.responseConsumer = responseConsumer
+	// bot.commandProducer = commandProducer
+	// bot.responseConsumer = responseConsumer
 	bot.metricsConsumer = metricsConsumer
-	bot.useKafka = useKafka
+	bot.useKafka = false // Force disable Kafka
 
 	return bot, nil
 }
@@ -321,25 +316,35 @@ func (b *Bot) Start() error {
 
 // startTelegramHandler starts the Telegram updates handler
 func (b *Bot) startTelegramHandler() error {
-	if b.telegramAPI == nil {
-		return NewTelegramError("Telegram API not initialized", nil)
-	}
+	var initErr error
 
-	// Configure updates
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
+	b.telegramStarted.Do(func() {
+		b.logger.Info("Initializing Telegram handler (sync.Once)")
+		if b.telegramAPI == nil {
+			initErr = NewTelegramError("Telegram API not initialized", nil)
+			return
+		}
 
-	updates := b.telegramAPI.GetUpdatesChan(u)
+		// Configure updates
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 60
 
-	// Start handling updates in a separate goroutine
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
-		b.handleUpdates(updates)
-	}()
+		updates := b.telegramAPI.GetUpdatesChan(u)
 
-	b.logger.Info("Telegram updates handler started")
-	return nil
+		// Debug: log that we got the updates channel
+		b.logger.Info("Got updates channel from Telegram API")
+
+		// Start handling updates in a separate goroutine
+		b.wg.Add(1)
+		go func() {
+			defer b.wg.Done()
+			b.handleUpdates(updates)
+		}()
+
+		b.logger.Info("Telegram updates handler started")
+	})
+
+	return initErr
 }
 
 // setupGracefulShutdown sets up graceful shutdown handling
@@ -389,12 +394,6 @@ func (b *Bot) Stop() error {
 		}
 	}
 
-	if b.redisClient != nil {
-		if err := b.redisClient.Close(); err != nil {
-			b.logger.Error("Error closing Redis connection", err)
-		}
-	}
-
 	if b.database != nil {
 		if err := b.database.Close(); err != nil {
 			b.logger.Error("Error closing database connection", err)
@@ -426,6 +425,19 @@ func (b *Bot) handleUpdates(updates tgbotapi.UpdatesChannel) {
 				b.logger.Info("Updates channel closed, stopping handler")
 				return
 			}
+
+			// Debug log to confirm update received
+			b.logger.Info("Received update",
+				IntField("update_id", update.UpdateID),
+				StringField("type", func() string {
+					if update.Message != nil {
+						return "message"
+					}
+					if update.CallbackQuery != nil {
+						return "callback"
+					}
+					return "unknown"
+				}()))
 
 			// Process update with timeout and error handling
 			ctx, cancel := context.WithTimeout(b.ctx, 30*time.Second)

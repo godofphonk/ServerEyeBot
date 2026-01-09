@@ -134,7 +134,7 @@ func TestCheckDockerAvailable(t *testing.T) {
 	// In CI environment, Docker should be available
 	err := client.checkDockerAvailable()
 
-	// We don't assert here because Docker might not be available in all test environments
+	// don't assert here because Docker might not be available in all test environments
 	// Just ensure the method doesn't panic
 	t.Logf("Docker availability check result: %v", err)
 }

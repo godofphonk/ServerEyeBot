@@ -56,6 +56,10 @@ func (b *Bot) handleContainerAction(userID int64, containerID, action string) st
 		Action:        action,
 	}
 
+	// Debug logging to see payload before sending
+	b.logger.Info(fmt.Sprintf("handleContainerAction - server_key: %s, action: %s, containerID: %s, payload: %+v",
+		serverKey, action, containerID, payload))
+
 	response, err := b.sendContainerAction(serverKey, messageType, payload)
 	if err != nil {
 		b.logger.Error("Error occurred", err)
@@ -79,7 +83,10 @@ func (b *Bot) sendContainerAction(serverKey string, messageType protocol.Message
 	ctx, cancel := context.WithTimeout(b.ctx, timeout)
 	defer cancel()
 
-	resp, err := b.sendCommandViaStreams(ctx, serverKey, message, timeout)
+	// Debug logging to see payload before sending
+	b.logger.Info(fmt.Sprintf("Sending container command via HTTP - server_key: %s, message_type: %s, payload: %+v", serverKey, string(message.Type), message.Payload))
+
+	resp, err := b.sendCommandViaHTTP(ctx, serverKey, message, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +241,7 @@ func (b *Bot) createContainerFromTemplate(userID int64, _ string, template strin
 	ctx, cancel := context.WithTimeout(b.ctx, 120*time.Second)
 	defer cancel()
 
-	resp, err := b.sendCommandViaStreams(ctx, serverKey, cmd, 120*time.Second)
+	resp, err := b.sendCommandViaHTTP(ctx, serverKey, cmd, 120*time.Second)
 	if err != nil {
 		b.logger.Error("Error occurred", err)
 		return fmt.Sprintf("❌ Failed to create container: %v", err)

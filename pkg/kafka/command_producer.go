@@ -99,9 +99,14 @@ func (p *CommandProducer) SendCommand(ctx context.Context, serverKey string, com
 	case "zstd":
 		writer.Compression = kafka.Zstd
 	default:
-		writer.Compression = kafka.Compression(0) // None
+		writer.Compression = kafka.Snappy
 	}
 	defer writer.Close()
+
+	// Ждем готовности топика перед отправкой
+	if err := p.waitForTopicReady(ctx, topic); err != nil {
+		return fmt.Errorf("failed to wait for topic ready: %w", err)
+	}
 
 	// Создаем сообщение
 	msg := kafka.Message{
@@ -151,4 +156,46 @@ func (p *CommandProducer) Close() error {
 func (p *CommandProducer) Stats() kafka.WriterStats {
 	// Возвращаем пустую статистику, так как writer создается динамически для каждой команды
 	return kafka.WriterStats{}
+}
+
+// waitForTopicReady ждет, пока топик будет готов к приему сообщений
+func (p *CommandProducer) waitForTopicReady(ctx context.Context, topic string) error {
+	// Создаем conn для проверки топика
+	conn, err := kafka.Dial("tcp", p.brokers[0])
+	if err != nil {
+		return fmt.Errorf("failed to dial kafka: %w", err)
+	}
+	defer conn.Close()
+
+	// Ждем до 30 секунд, пока топик не будет готов
+	deadline := time.Now().Add(30 * time.Second)
+
+	for time.Now().Before(deadline) {
+		partitions, err := conn.ReadPartitions(topic)
+		if err != nil {
+			// Топик еще не создан, ждем
+			p.logger.WithField("topic", topic).Debug("Topic not ready yet, waiting...")
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		// Проверяем, есть ли лидер у партиций
+		hasLeader := true
+		for _, partition := range partitions {
+			if partition.Leader.ID == -1 {
+				hasLeader = false
+				break
+			}
+		}
+
+		if hasLeader {
+			p.logger.WithField("topic", topic).Debug("Topic is ready with leader")
+			return nil
+		}
+
+		p.logger.WithField("topic", topic).Debug("Topic has no leader yet, waiting...")
+		time.Sleep(1 * time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for topic %s to be ready", topic)
 }
