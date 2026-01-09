@@ -37,14 +37,14 @@ type Bot struct {
 	db     *sql.DB
 	keysDB *sql.DB
 
-	// Streams client for new architecture (deprecated, using Kafka now)
+	// Streams client for new architecture (deprecated, using HTTP now)
 	// streamsClient *streams.Client
 
-	// Kafka components for unified messaging
-	commandProducer  *kafka.CommandProducer
-	responseConsumer *kafka.ResponseConsumer
-	metricsConsumer  *KafkaConsumer
-	useKafka         bool
+	// Kafka components disabled - using HTTP instead
+	// commandProducer  *kafka.CommandProducer
+	// responseConsumer *kafka.ResponseConsumer
+	metricsConsumer *KafkaConsumer
+	useKafka        bool
 
 	// Context management
 	ctx    context.Context
@@ -184,7 +184,7 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 	bot.keysDB = keysDB
 
 	// Initialize Kafka components if enabled
-	var useKafka bool
+	// var useKafka bool
 	// var commandProducer *kafka.CommandProducer
 	// var responseConsumer *kafka.ResponseConsumer
 	var metricsConsumer *KafkaConsumer

@@ -103,8 +103,8 @@ func (b *Bot) sendCommandViaStreams(ctx context.Context, serverKey string, comma
 	return nil, fmt.Errorf("streams transport is disabled; kafka must be enabled")
 }
 
-// sendCommandViaHTTP sends command using backend HTTP API
-func (b *Bot) sendCommandViaHTTP(ctx context.Context, serverKey string, command *protocol.Message, timeout time.Duration) (*protocol.Message, error) {
+// sendCommandViaBackendHTTP sends command using backend HTTP API (deprecated)
+func (b *Bot) sendCommandViaBackendHTTP(ctx context.Context, serverKey string, command *protocol.Message, timeout time.Duration) (*protocol.Message, error) {
 	// Prepare command request
 	cmdRequest := map[string]interface{}{
 		"server_key": serverKey,
