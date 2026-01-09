@@ -20,7 +20,6 @@ services:
       - "9080:8080"  # Health check endpoint
     depends_on:
       - postgres
-      - redis
     volumes:
       - ../logs:/var/log/servereye
     networks:
@@ -34,20 +33,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-  redis:
-    image: redis:7-alpine
-    container_name: ServerEyeBot-Redis-Dev
-    restart: unless-stopped
-    ports:
-      - "6380:6379"  # Use 6380 to avoid conflict
-    networks:
-      - servereye-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   postgres:
     image: postgres:15-alpine
