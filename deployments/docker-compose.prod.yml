@@ -191,7 +191,7 @@ services:
           memory: 128M
 
 volumes:
-postgres-data:
+  postgres-data:
     driver: local
   kafka-data:
     driver: local
