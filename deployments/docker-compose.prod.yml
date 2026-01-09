@@ -5,7 +5,7 @@ version: '3.8'
 services:
   bot:
     image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-servereye}/servereye-bot:stable
-    container_name: servereye-bot-prod
+    container_name: ServerEyeBot-TelegramBot
     restart: always
     env_file:
       - ../.env.prod
@@ -46,7 +46,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: servereye-redis-prod
+    container_name: ServerEyeBot-Redis
     restart: always
     env_file:
       - ../.env.prod
@@ -69,7 +69,7 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: servereye-postgres-prod
+    container_name: ServerEyeBot-Postgres
     restart: always
     env_file:
       - ../.env.prod
@@ -92,7 +92,7 @@ services:
   # Production Kafka setup
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
-    container_name: servereye-zookeeper-prod
+    container_name: ServerEyeBot-Zookeeper
     restart: always
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -111,7 +111,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: servereye-kafka-prod
+    container_name: ServerEyeBot-Kafka
     restart: always
     depends_on:
       - zookeeper
@@ -146,7 +146,7 @@ services:
   # Prometheus for monitoring
   prometheus:
     image: prom/prometheus:latest
-    container_name: servereye-prometheus-prod
+    container_name: ServerEyeBot-Prometheus
     restart: always
     ports:
       - "9090:9090"
@@ -171,7 +171,7 @@ services:
   # Grafana for visualization
   grafana:
     image: grafana/grafana:latest
-    container_name: servereye-grafana-prod
+    container_name: ServerEyeBot-Grafana
     restart: always
     ports:
       - "3000:3000"
@@ -194,7 +194,7 @@ services:
   # Nginx reverse proxy
   nginx:
     image: nginx:alpine
-    container_name: servereye-nginx-prod
+    container_name: ServerEyeBot-Nginx
     restart: always
     ports:
       - "80:80"

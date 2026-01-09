@@ -5,7 +5,7 @@ services:
     build:
       context: ../../servereye
       dockerfile: deployments/Dockerfile.agent
-    container_name: servereye-test-agent
+    container_name: ServerEyeAgent-TestAgent
     restart: unless-stopped
     environment:
       - SERVER_KEY=test_server_12345

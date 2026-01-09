@@ -6,7 +6,7 @@ version: '3.8'
 services:
   watchtower:
     image: containrrr/watchtower:latest
-    container_name: servereye-watchtower
+    container_name: ServerEyeBot-Watchtower
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

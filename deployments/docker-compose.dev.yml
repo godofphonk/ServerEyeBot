@@ -7,7 +7,7 @@ services:
     build:
       context: ..
       dockerfile: deployments/Dockerfile.bot
-    container_name: servereyeBot-bot-dev
+    container_name: ServerEyeBot-TelegramBot-Dev
     restart: unless-stopped
     env_file:
       - ../.env.dev
@@ -37,7 +37,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: servereyeBot-redis-dev
+    container_name: ServerEyeBot-Redis-Dev
     restart: unless-stopped
     ports:
       - "6380:6379"  # Use 6380 to avoid conflict
@@ -51,7 +51,7 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: servereyeBot-postgres-dev
+    container_name: ServerEyeBot-Postgres-Dev
     restart: unless-stopped
     ports:
       - "5434:5432"  # Use 5434 to avoid conflict
@@ -73,7 +73,7 @@ services:
   # PgAdmin for development
   pgadmin:
     image: dpage/pgadmin4:latest
-    container_name: servereyeBot-pgadmin
+    container_name: ServerEyeBot-PgAdmin
     restart: unless-stopped
     environment:
       - PGADMIN_DEFAULT_EMAIL=admin@servereye.dev
