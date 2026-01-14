@@ -23,8 +23,6 @@ var (
 	ErrAgentUnavailable = errors.New("agent unavailable")
 	// ErrDatabaseConnection indicates database connection error
 	ErrDatabaseConnection = errors.New("database connection error")
-	// ErrRedisConnection indicates Redis connection error
-	ErrRedisConnection = errors.New("redis connection error")
 )
 
 // BotError represents a structured error with context
@@ -81,7 +79,6 @@ func (e *BotError) WithContext(key string, value interface{}) *BotError {
 const (
 	ErrCodeValidation   = "VALIDATION_ERROR"
 	ErrCodeDatabase     = "DATABASE_ERROR"
-	ErrCodeRedis        = "REDIS_ERROR"
 	ErrCodeAgent        = "AGENT_ERROR"
 	ErrCodeTelegram     = "TELEGRAM_ERROR"
 	ErrCodeUnauthorized = "UNAUTHORIZED_ERROR"
@@ -97,10 +94,6 @@ func NewValidationError(message string, cause error) *BotError {
 
 func NewDatabaseError(message string, cause error) *BotError {
 	return NewBotError(ErrCodeDatabase, message, cause)
-}
-
-func NewRedisError(message string, cause error) *BotError {
-	return NewBotError(ErrCodeRedis, message, cause)
 }
 
 func NewAgentError(message string, cause error) *BotError {
@@ -128,8 +121,6 @@ func ErrorToUserMessage(err error) string {
 			return fmt.Sprintf("Invalid input: %s", botErr.Message)
 		case ErrCodeDatabase:
 			return "Database error occurred. Please try again later."
-		case ErrCodeRedis:
-			return "Connection error occurred. Please try again later."
 		case ErrCodeAgent:
 			return "Server communication error. Please check if your server is online."
 		case ErrCodeTelegram:

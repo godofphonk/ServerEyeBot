@@ -37,7 +37,6 @@ func NewInputValidator() *InputValidator {
 		containerIDRegex: regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`),
 		protectedContainers: []string{
 			"servereye-bot",
-			"redis",
 			"postgres",
 			"postgresql",
 			"database",

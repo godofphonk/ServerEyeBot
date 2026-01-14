@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/servereye/servereyebot/internal/bot"
@@ -34,17 +32,21 @@ func main() {
 		return
 	}
 
-	// Setup logger
+	// Setup logger first
 	logger := setupLogger(*logLevel)
 
 	// Load configuration
 	cfg, err := loadConfigFromEnv()
 	if err != nil {
+		logger.Info("Environment variables not found, trying config file")
 		// Try to load from file if env vars not available
 		cfg, err = config.LoadBotConfig(*configPath)
 		if err != nil {
 			logger.WithError(err).Fatal("Failed to load configuration")
 		}
+		logger.Info("Configuration loaded from file")
+	} else {
+		logger.Info("Configuration loaded from environment variables")
 	}
 
 	// Create and start bot
@@ -97,75 +99,8 @@ func setupLogger(level string) *logrus.Logger {
 // loadConfigFromEnv loads configuration from environment variables
 func loadConfigFromEnv() (*config.BotConfig, error) {
 	telegramToken := os.Getenv("TELEGRAM_TOKEN")
-	databaseURL := os.Getenv("DATABASE_URL")
-	keysDatabaseURL := os.Getenv("KEYS_DATABASE_URL")
 
-	// Kafka configuration
-	kafkaEnabledStr := os.Getenv("KAFKA_ENABLED")
-	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
-	kafkaTopicPrefix := os.Getenv("KAFKA_TOPIC_PREFIX")
-	kafkaCompression := os.Getenv("KAFKA_COMPRESSION")
-	kafkaMaxAttemptsStr := os.Getenv("KAFKA_MAX_ATTEMPTS")
-	kafkaBatchSizeStr := os.Getenv("KAFKA_BATCH_SIZE")
-	kafkaRequiredAcksStr := os.Getenv("KAFKA_REQUIRED_ACKS")
-
-	// Parse Kafka configuration
-	var kafkaConfig config.KafkaConfig
-	if kafkaEnabledStr == "true" || kafkaEnabledStr == "1" {
-		kafkaConfig.Enabled = true
-
-		// Set defaults for optional fields
-		if kafkaBrokers == "" {
-			kafkaConfig.Brokers = []string{"localhost:9092"}
-		} else {
-			// Split comma-separated brokers
-			kafkaConfig.Brokers = strings.Split(kafkaBrokers, ",")
-		}
-
-		if kafkaTopicPrefix == "" {
-			kafkaConfig.TopicPrefix = "metrics"
-		} else {
-			kafkaConfig.TopicPrefix = kafkaTopicPrefix
-		}
-
-		if kafkaCompression == "" {
-			kafkaConfig.Compression = "snappy"
-		} else {
-			kafkaConfig.Compression = kafkaCompression
-		}
-
-		if kafkaMaxAttemptsStr != "" {
-			if maxAttempts, err := strconv.Atoi(kafkaMaxAttemptsStr); err == nil {
-				kafkaConfig.MaxAttempts = maxAttempts
-			} else {
-				kafkaConfig.MaxAttempts = 3
-			}
-		} else {
-			kafkaConfig.MaxAttempts = 3
-		}
-
-		if kafkaBatchSizeStr != "" {
-			if batchSize, err := strconv.Atoi(kafkaBatchSizeStr); err == nil {
-				kafkaConfig.BatchSize = batchSize
-			} else {
-				kafkaConfig.BatchSize = 100
-			}
-		} else {
-			kafkaConfig.BatchSize = 100
-		}
-
-		if kafkaRequiredAcksStr != "" {
-			if requiredAcks, err := strconv.Atoi(kafkaRequiredAcksStr); err == nil {
-				kafkaConfig.RequiredAcks = requiredAcks
-			} else {
-				kafkaConfig.RequiredAcks = 1
-			}
-		} else {
-			kafkaConfig.RequiredAcks = 1
-		}
-	}
-
-	if telegramToken == "" || databaseURL == "" {
+	if telegramToken == "" {
 		return nil, fmt.Errorf("missing required environment variables")
 	}
 
@@ -173,11 +108,6 @@ func loadConfigFromEnv() (*config.BotConfig, error) {
 		Telegram: config.TelegramConfig{
 			Token: telegramToken,
 		},
-		Database: config.DatabaseConfig{
-			URL:     databaseURL,
-			KeysURL: keysDatabaseURL,
-		},
-		Kafka: kafkaConfig,
 		Logging: config.LoggingConfig{
 			Level: "info",
 		},

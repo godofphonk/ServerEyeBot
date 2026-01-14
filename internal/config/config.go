@@ -10,8 +10,6 @@ import (
 // BotConfig конфигурация бота
 type BotConfig struct {
 	Telegram TelegramConfig `yaml:"telegram"`
-	Database DatabaseConfig `yaml:"database"`
-	Kafka    KafkaConfig    `yaml:"kafka,omitempty"`
 	Logging  LoggingConfig  `yaml:"logging"`
 }
 
@@ -26,23 +24,6 @@ type TelegramConfig struct {
 	Token string `yaml:"token"`
 }
 
-// DatabaseConfig конфигурация базы данных
-type DatabaseConfig struct {
-	URL     string `yaml:"url"`
-	KeysURL string `yaml:"keys_url"`
-}
-
-// KafkaConfig конфигурация Kafka
-type KafkaConfig struct {
-	Enabled      bool     `yaml:"enabled"`
-	Brokers      []string `yaml:"brokers"`
-	TopicPrefix  string   `yaml:"topic_prefix"`
-	Compression  string   `yaml:"compression"`
-	MaxAttempts  int      `yaml:"max_attempts"`
-	BatchSize    int      `yaml:"batch_size"`
-	RequiredAcks int      `yaml:"required_acks"`
-}
-
 // LoadBotConfig загружает конфигурацию бота
 func LoadBotConfig(filepath string) (*BotConfig, error) {
 	data, err := os.ReadFile(filepath)
@@ -53,11 +34,6 @@ func LoadBotConfig(filepath string) (*BotConfig, error) {
 	var config BotConfig
 	if err := yaml.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("не удалось парсить конфигурацию: %v", err)
-	}
-
-	// Load KEYS_DATABASE_URL from environment if not set in YAML
-	if config.Database.KeysURL == "" {
-		config.Database.KeysURL = os.Getenv("KEYS_DATABASE_URL")
 	}
 
 	// Валидация конфигурации
@@ -72,9 +48,6 @@ func LoadBotConfig(filepath string) (*BotConfig, error) {
 func (c *BotConfig) validate() error {
 	if c.Telegram.Token == "" {
 		return fmt.Errorf("токен Telegram бота не может быть пустым")
-	}
-	if c.Database.URL == "" {
-		return fmt.Errorf("URL базы данных не может быть пустым")
 	}
 	return nil
 }

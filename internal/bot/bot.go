@@ -2,8 +2,6 @@ package bot
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,10 +11,8 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	_ "github.com/lib/pq"
 	"github.com/servereye/servereyebot/internal/config"
-
-	// "github.com/servereye/servereyebot/pkg/kafka"
+	"github.com/servereye/servereyebot/pkg/metrics"
 	"github.com/sirupsen/logrus"
 )
 
@@ -28,23 +24,12 @@ type Bot struct {
 	// Dependencies (interfaces for better testability)
 	logger      Logger
 	telegramAPI TelegramAPI
-	database    Database
-	agentClient AgentClient
 	validator   Validator
 	metrics     Metrics
 
-	// Direct database access for internal methods
-	db     *sql.DB
-	keysDB *sql.DB
-
-	// Streams client for new architecture (deprecated, using HTTP now)
-	// streamsClient *streams.Client
-
-	// Kafka components disabled - using HTTP instead
-	// commandProducer  *kafka.CommandProducer
-	// responseConsumer *kafka.ResponseConsumer
-	metricsConsumer *KafkaConsumer
-	useKafka        bool
+	// System monitors
+	cpuMetrics    *metrics.CPUMetrics
+	systemMonitor *metrics.SystemMonitor
 
 	// Context management
 	ctx    context.Context
@@ -63,8 +48,6 @@ type BotOptions struct {
 	Config      *config.BotConfig
 	Logger      Logger
 	TelegramAPI TelegramAPI
-	Database    Database
-	AgentClient AgentClient
 	Validator   Validator
 	Metrics     Metrics
 }
@@ -78,16 +61,16 @@ func New(opts BotOptions) (*Bot, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	bot := &Bot{
-		config:      opts.Config,
-		logger:      opts.Logger,
-		telegramAPI: opts.TelegramAPI,
-		database:    opts.Database,
-		agentClient: opts.AgentClient,
-		validator:   opts.Validator,
-		metrics:     opts.Metrics,
-		ctx:         ctx,
-		cancel:      cancel,
-		shutdown:    make(chan struct{}),
+		config:        opts.Config,
+		logger:        opts.Logger,
+		telegramAPI:   opts.TelegramAPI,
+		validator:     opts.Validator,
+		metrics:       opts.Metrics,
+		cpuMetrics:    metrics.NewCPUMetrics(),
+		systemMonitor: metrics.NewSystemMonitor(logrus.New()),
+		ctx:           ctx,
+		cancel:        cancel,
+		shutdown:      make(chan struct{}),
 	}
 
 	// Set defaults if not provided
@@ -120,55 +103,11 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 
 	// Redis client removed - using Kafka only
 
-	// Initialize database connection
-	db, err := sql.Open("postgres", cfg.Database.URL)
-	if err != nil {
-		return nil, NewDatabaseError("failed to connect to database", err)
-	}
-
-	if err := db.Ping(); err != nil {
-		return nil, NewDatabaseError("failed to ping database", err)
-	}
-
-	logger.Info("Database connection established")
-
-	// Initialize keys database connection
-	var keysDB *sql.DB
-	if cfg.Database.KeysURL != "" {
-		keysDB, err = sql.Open("postgres", cfg.Database.KeysURL)
-		if err != nil {
-			return nil, NewDatabaseError("failed to connect to keys database", err)
-		}
-
-		if err := keysDB.Ping(); err != nil {
-			return nil, NewDatabaseError("failed to ping keys database", err)
-		}
-
-		// Set connection pooling for keys database (read-only access)
-		keysDB.SetMaxOpenConns(5)
-		keysDB.SetMaxIdleConns(2)
-		keysDB.SetConnMaxLifetime(5 * time.Minute)
-
-		logger.Info("Keys database connection established")
-	} else {
-		logger.Warn("KEYS_DATABASE_URL not configured, using main database for keys")
-		keysDB = db
-	}
-
-	// Create a temporary bot instance for adapters
-	tempBot := &Bot{}
-
-	// Create adapters
-	dbAdapter := NewDatabaseAdapter(db, tempBot)
-	agentAdapter := NewAgentClientAdapter(tempBot)
-
 	// Create bot with real implementations
 	bot, err := New(BotOptions{
 		Config:      cfg,
 		Logger:      NewStructuredLogger(logger),
 		TelegramAPI: tgBot,
-		Database:    dbAdapter,
-		AgentClient: agentAdapter,
 		Validator:   NewInputValidator(),
 		Metrics:     NewInMemoryMetrics(),
 	})
@@ -177,114 +116,12 @@ func NewFromConfig(cfg *config.BotConfig, logger *logrus.Logger) (*Bot, error) {
 		return nil, err
 	}
 
-	// Update adapter references and set direct DB access
-	dbAdapter.bot = bot
-	agentAdapter.bot = bot
-	bot.db = db
-	bot.keysDB = keysDB
-
-	// Initialize Kafka components if enabled
-	// var useKafka bool
-	// var commandProducer *kafka.CommandProducer
-	// var responseConsumer *kafka.ResponseConsumer
-	var metricsConsumer *KafkaConsumer
-
-	if false && cfg.Kafka.Enabled && len(cfg.Kafka.Brokers) > 0 {
-		// Kafka initialization disabled
-		/*
-			// Initialize command producer
-			producerConfig := kafka.CommandProducerConfig{
-				Brokers:      cfg.Kafka.Brokers,
-				Topic:        "servereye.commands", // Will be overridden per command with server-specific topic
-				Compression:  cfg.Kafka.Compression,
-				BatchSize:    1, // Send commands immediately
-				BatchTimeout: 10 * time.Millisecond,
-			}
-
-			producer, err := kafka.NewCommandProducer(producerConfig, logger)
-			if err != nil {
-				logger.WithError(err).Error("Failed to create Kafka command producer")
-			} else {
-				commandProducer = producer
-				logger.Info("Kafka command producer initialized")
-			}
-
-			// Initialize response consumer
-			consumerConfig := kafka.ResponseConsumerConfig{
-				Brokers:        cfg.Kafka.Brokers,
-				GroupID:        "bot-response-handlers",
-				ServerKey:      "bot",                 // Bot receives responses for all servers
-				Topic:          "servereye.responses", // Базовый топик, будет использовать wildcard
-				MinBytes:       10e3,                  // 10KB
-				MaxBytes:       10e6,                  // 10MB
-				CommitInterval: time.Second,
-			}
-
-			consumer, err := kafka.NewResponseConsumer(consumerConfig, logger)
-			if err != nil {
-				logger.WithError(err).Error("Failed to create Kafka response consumer")
-			} else {
-				responseConsumer = consumer
-				useKafka = true
-				logger.Info("Kafka response consumer initialized")
-			}
-
-			// Initialize metrics consumer
-			metricsConsumer, err = NewKafkaConsumer(
-				cfg.Kafka.Brokers,
-				"metrics",
-				"bot-metrics-consumers",
-				logger,
-			)
-			if err != nil {
-				logger.WithError(err).Error("Failed to create Kafka metrics consumer")
-			} else {
-				logger.Info("Kafka metrics consumer initialized")
-			}
-		*/
-	}
-
-	// Set Kafka components
-	// bot.commandProducer = commandProducer
-	// bot.responseConsumer = responseConsumer
-	bot.metricsConsumer = metricsConsumer
-	bot.useKafka = false // Force disable Kafka
-
 	return bot, nil
 }
 
 // Start starts the bot with graceful shutdown handling
 func (b *Bot) Start() error {
 	b.logger.Info("Starting ServerEye Telegram bot")
-
-	// Start Kafka response consumer if enabled
-	if b.useKafka && b.responseConsumer != nil {
-		go func() {
-			if err := b.responseConsumer.Start(); err != nil {
-				b.logger.Error("Failed to start Kafka response consumer", err)
-			}
-		}()
-		b.logger.Info("Starting Kafka response consumer")
-		b.logger.Info("Kafka response consumer started")
-	}
-
-	// Start Kafka metrics consumer if enabled
-	if b.useKafka && b.metricsConsumer != nil {
-		go func() {
-			if err := b.metricsConsumer.Start(); err != nil {
-				b.logger.Error("Failed to start Kafka metrics consumer", err)
-			}
-		}()
-		b.logger.Info("Starting Kafka metrics consumer")
-		b.logger.Info("Kafka metrics consumer started")
-	}
-
-	// Initialize database schema if database is available
-	if b.database != nil {
-		if err := b.database.InitSchema(); err != nil {
-			return NewDatabaseError("failed to initialize database schema", err)
-		}
-	}
 
 	// Setup graceful shutdown
 	b.setupGracefulShutdown()
@@ -294,12 +131,6 @@ func (b *Bot) Start() error {
 		b.logger.Error("Failed to set menu commands", err)
 		// Non-critical error, continue
 	}
-
-	// Start HTTP server for agent API
-	go func() {
-		b.logger.Info("About to start HTTP server goroutine...")
-		b.startHTTPServer()
-	}()
 
 	// Start Telegram updates handler
 	if err := b.startTelegramHandler(); err != nil {
@@ -387,30 +218,7 @@ func (b *Bot) Stop() error {
 		b.logger.Warn("Timeout waiting for goroutines to stop")
 	}
 
-	// Close connections
-	if b.useKafka && b.metricsConsumer != nil {
-		if err := b.metricsConsumer.Stop(); err != nil {
-			b.logger.Error("Error stopping Kafka metrics consumer", err)
-		}
-	}
-
-	if b.database != nil {
-		if err := b.database.Close(); err != nil {
-			b.logger.Error("Error closing database connection", err)
-		}
-	}
-
-	// Close keys database connection if it's separate from main DB
-	if b.keysDB != nil && b.keysDB != b.db {
-		if err := b.keysDB.Close(); err != nil {
-			b.logger.Error("Error closing keys database connection", err)
-		}
-	}
-
-	// Signal shutdown complete
-	close(b.shutdown)
-
-	b.logger.Info("Bot stopped successfully")
+	b.logger.Info("ServerEye Telegram bot stopped successfully")
 	return nil
 }
 
@@ -471,17 +279,17 @@ func (b *Bot) processUpdate(ctx context.Context, update tgbotapi.Update) {
 	// Process different update types
 	switch {
 	case update.Message != nil:
-		b.processMessage(ctx, update.Message)
+		b.handleMessage(ctx, update.Message)
 	case update.CallbackQuery != nil:
-		b.processCallbackQuery(ctx, update.CallbackQuery)
+		b.handleCallback(ctx, update.CallbackQuery)
 	default:
 		b.logger.Debug("Received update without message or callback query",
 			IntField("update_id", update.UpdateID))
 	}
 }
 
-// processMessage processes a message update
-func (b *Bot) processMessage(ctx context.Context, message *tgbotapi.Message) {
+// handleMessage handles message processing with command routing
+func (b *Bot) handleMessage(ctx context.Context, message *tgbotapi.Message) {
 	start := time.Now()
 
 	// Log message details
@@ -497,34 +305,55 @@ func (b *Bot) processMessage(ctx context.Context, message *tgbotapi.Message) {
 			message.Text = validator.SanitizeInput(message.Text)
 		}
 	}
-
-	// Handle message with error handling
-	err := b.handleMessage(message)
+	// Simple command handling for now
+	switch message.Text {
+	case "/start":
+		msg := tgbotapi.NewMessage(message.Chat.ID, "🚀 ServerEye Bot started!\n\nAvailable commands:\n/start - Show this message\n/help - Show help\n/temp - Get CPU temperature\n/memory - Get memory usage\n/disk - Get disk usage")
+		msg.ReplyMarkup = tgbotapi.NewReplyKeyboard(
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("🌡️ Temperature"),
+				tgbotapi.NewKeyboardButton("💾 Memory"),
+			),
+			tgbotapi.NewKeyboardButtonRow(
+				tgbotapi.NewKeyboardButton("💿 Disk"),
+				tgbotapi.NewKeyboardButton("⏱️ Uptime"),
+			),
+		)
+		if _, err := b.telegramAPI.Send(msg); err != nil {
+			b.logger.Error("Failed to send start message", err)
+		}
+	case "/help":
+		msg := tgbotapi.NewMessage(message.Chat.ID, "🤖 ServerEye Bot Help\n\nCommands:\n/start - Start bot\n/temp - CPU temperature\n/memory - Memory usage\n/disk - Disk usage\n/uptime - System uptime")
+		if _, err := b.telegramAPI.Send(msg); err != nil {
+			b.logger.Error("Failed to send help message", err)
+		}
+	case "/temp", "🌡️ Temperature":
+		b.handleTemperatureCommand(ctx, message)
+	case "/memory", "💾 Memory":
+		b.handleMemoryCommand(ctx, message)
+	case "/disk", "💿 Disk":
+		b.handleDiskCommand(ctx, message)
+	case "/uptime", "⏱️ Uptime":
+		b.handleUptimeCommand(ctx, message)
+	default:
+		// Echo unknown messages
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Received: %s", message.Text))
+		if _, err := b.telegramAPI.Send(msg); err != nil {
+			b.logger.Error("Failed to send echo message", err)
+		}
+	}
 
 	// Record metrics
 	if b.metrics != nil {
 		duration := time.Since(start).Seconds()
 		b.metrics.RecordLatency("message_processing", duration)
-
-		if err != nil {
-			var botErr *BotError
-			if errors.As(err, &botErr) {
-				b.metrics.IncrementError(botErr.Code)
-			} else {
-				b.metrics.IncrementError("UNKNOWN_ERROR")
-			}
-		}
 	}
 
-	if err != nil {
-		b.logger.Error("Error processing message", err,
-			Int64Field("user_id", message.From.ID),
-			StringField("text", message.Text))
-	}
+	b.logger.Info("Message processed successfully")
 }
 
-// processCallbackQuery processes a callback query update
-func (b *Bot) processCallbackQuery(ctx context.Context, query *tgbotapi.CallbackQuery) {
+// handleCallback handles callback query processing
+func (b *Bot) handleCallback(ctx context.Context, query *tgbotapi.CallbackQuery) {
 	start := time.Now()
 
 	// Log callback details
@@ -534,28 +363,99 @@ func (b *Bot) processCallbackQuery(ctx context.Context, query *tgbotapi.Callback
 		StringField("data", query.Data),
 		StringField("query_id", query.ID))
 
-	// Handle callback with error handling
-	err := b.handleCallbackQuery(query)
+	// Handle callback data
+	callback := tgbotapi.NewCallback(query.ID, "Callback received")
+	if _, err := b.telegramAPI.Request(callback); err != nil {
+		b.logger.Error("Failed to answer callback query", err)
+	}
+
+	// Edit message to show callback was handled
+	msg := tgbotapi.NewEditMessageText(query.Message.Chat.ID, query.Message.MessageID, fmt.Sprintf("Callback handled: %s", query.Data))
+	if _, err := b.telegramAPI.Send(msg); err != nil {
+		b.logger.Error("Failed to edit message for callback", err)
+	}
 
 	// Record metrics
 	if b.metrics != nil {
 		duration := time.Since(start).Seconds()
 		b.metrics.RecordLatency("callback_processing", duration)
-
-		if err != nil {
-			var botErr *BotError
-			if errors.As(err, &botErr) {
-				b.metrics.IncrementError(botErr.Code)
-			} else {
-				b.metrics.IncrementError("UNKNOWN_ERROR")
-			}
-		}
 	}
 
+	b.logger.Info("Callback processed successfully")
+}
+
+// handleTemperatureCommand handles temperature requests
+func (b *Bot) handleTemperatureCommand(ctx context.Context, message *tgbotapi.Message) {
+	temp, err := b.cpuMetrics.GetTemperature()
 	if err != nil {
-		b.logger.Error("Error processing callback query", err,
-			Int64Field("user_id", query.From.ID),
-			StringField("data", query.Data))
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ Failed to get temperature: %v", err))
+		b.telegramAPI.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("🌡️ CPU Temperature: %.1f°C", temp))
+	if _, err := b.telegramAPI.Send(msg); err != nil {
+		b.logger.Error("Failed to send temperature message", err)
+	}
+}
+
+// handleMemoryCommand handles memory requests
+func (b *Bot) handleMemoryCommand(ctx context.Context, message *tgbotapi.Message) {
+	memInfo, err := b.systemMonitor.GetMemoryInfo()
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ Failed to get memory info: %v", err))
+		b.telegramAPI.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("💾 Memory Usage:\nTotal: %.1f GB\nAvailable: %.1f GB\nUsed: %.1f GB\nUsage: %.1f%%",
+		float64(memInfo.Total)/1024/1024/1024,
+		float64(memInfo.Available)/1024/1024/1024,
+		float64(memInfo.Used)/1024/1024/1024,
+		float64(memInfo.Used)/float64(memInfo.Total)*100))
+	if _, err := b.telegramAPI.Send(msg); err != nil {
+		b.logger.Error("Failed to send memory message", err)
+	}
+}
+
+// handleDiskCommand handles disk requests
+func (b *Bot) handleDiskCommand(ctx context.Context, message *tgbotapi.Message) {
+	diskInfo, err := b.systemMonitor.GetDiskInfo()
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ Failed to get disk info: %v", err))
+		b.telegramAPI.Send(msg)
+		return
+	}
+
+	var response string
+	response = "💿 Disk Usage:\n"
+	for _, disk := range diskInfo.Disks {
+		response += fmt.Sprintf("%s: %.1f GB used / %.1f GB total (%.1f%%)\n",
+			disk.Path,
+			float64(disk.Used)/1024/1024/1024,
+			float64(disk.Total)/1024/1024/1024,
+			float64(disk.Used)/float64(disk.Total)*100)
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, response)
+	if _, err := b.telegramAPI.Send(msg); err != nil {
+		b.logger.Error("Failed to send disk message", err)
+	}
+}
+
+// handleUptimeCommand handles uptime requests
+func (b *Bot) handleUptimeCommand(ctx context.Context, message *tgbotapi.Message) {
+	// Simple uptime implementation
+	uptime, err := b.systemMonitor.GetUptime()
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("❌ Failed to get uptime: %v", err))
+		b.telegramAPI.Send(msg)
+		return
+	}
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("⏱️ System Uptime: %s", uptime.Formatted))
+	if _, err := b.telegramAPI.Send(msg); err != nil {
+		b.logger.Error("Failed to send uptime message", err)
 	}
 }
 
