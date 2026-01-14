@@ -1,22 +1,28 @@
+version: '3.8'
+
 services:
-  bot:
+  servereye-bot:
     build:
       context: .
       dockerfile: Dockerfile
-    image: servereye-bot:latest
     container_name: ServerEyeBot-TelegramBot
     restart: unless-stopped
     environment:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ENV=${ENV:-development}
+      - API_BASE_URL=http://host.docker.internal:8080
+      - PORT=${PORT:-8091}
+      - ADMIN_USER_ID=${ADMIN_USER_ID}
+      - DATABASE_URL=postgres://servereye:servereye123@postgres:5432/servereye?sslmode=disable
     ports:
-      - '8091:8080'
+      - "${PORT:-8091}:8080"
     volumes:
       - ./logs:/app/logs
-      - servereye_config:/etc/servereye:ro
     networks:
       - servereye-network
+    depends_on:
+      - postgres
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
@@ -24,13 +30,30 @@ services:
       retries: 3
       start_period: 40s
 
+  postgres:
+    image: postgres:15-alpine
+    container_name: servereye-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=servereye
+      - POSTGRES_USER=servereye
+      - POSTGRES_PASSWORD=servereye123
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    networks:
+      - servereye-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servereye -d servereye"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
-  servereye_config:
-    driver: local
+  postgres_data:
 
 networks:
   servereye-network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16

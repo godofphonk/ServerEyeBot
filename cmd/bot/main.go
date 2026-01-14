@@ -1,115 +1,99 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/servereye/servereyebot/internal/bot"
+	"github.com/servereye/servereyebot/internal/app"
 	"github.com/servereye/servereyebot/internal/config"
-	"github.com/servereye/servereyebot/internal/version"
-	"github.com/sirupsen/logrus"
+	"github.com/servereye/servereyebot/internal/logger"
 )
 
-const (
-	defaultConfigPath = "/etc/servereye/bot-config.yaml"
-	defaultLogLevel   = "info"
+var (
+	version = "1.0.0"
+	commit  = "unknown"
+	date    = "unknown"
 )
 
 func main() {
 	var (
-		configPath  = flag.String("config", defaultConfigPath, "Path to configuration file")
-		logLevel    = flag.String("log-level", defaultLogLevel, "Log level (debug, info, warn, error)")
 		showVersion = flag.Bool("version", false, "Show version information")
+		_           = flag.String("config", "", "Path to configuration file (optional)")
 	)
 	flag.Parse()
 
-	// Show version
 	if *showVersion {
-		fmt.Printf("ServerEye Bot %s\n", version.GetFullVersion())
-		return
+		fmt.Printf("ServerEyeBot %s (commit: %s, built: %s)\n", version, commit, date)
+		os.Exit(0)
 	}
-
-	// Setup logger first
-	logger := setupLogger(*logLevel)
 
 	// Load configuration
-	cfg, err := loadConfigFromEnv()
+	cfg, err := config.Load()
 	if err != nil {
-		logger.Info("Environment variables not found, trying config file")
-		// Try to load from file if env vars not available
-		cfg, err = config.LoadBotConfig(*configPath)
-		if err != nil {
-			logger.WithError(err).Fatal("Failed to load configuration")
-		}
-		logger.Info("Configuration loaded from file")
-	} else {
-		logger.Info("Configuration loaded from environment variables")
+		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+		os.Exit(1)
 	}
 
-	// Create and start bot
-	botInstance, err := bot.NewFromConfig(cfg, logger)
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create logger
+	log, err := logger.New(logger.LoggerConfig{
+		Level:      cfg.Logger.Level,
+		Format:     cfg.Logger.Format,
+		Output:     cfg.Logger.Output,
+		Filename:   cfg.Logger.Filename,
+		MaxSize:    cfg.Logger.MaxSize,
+		MaxBackups: cfg.Logger.MaxBackups,
+		MaxAge:     cfg.Logger.MaxAge,
+		Compress:   cfg.Logger.Compress,
+	})
 	if err != nil {
-		logger.WithError(err).Fatal("Failed to create bot")
+		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
+		os.Exit(1)
 	}
 
-	if err := botInstance.Start(); err != nil {
-		logger.WithError(err).Fatal("Failed to start bot")
+	log.Info("Starting ServerEyeBot",
+		"version", version,
+		"commit", commit,
+		"environment", cfg.App.Environment,
+		"port", cfg.App.Port)
+
+	// Create bot
+	bot, err := app.New(cfg, log)
+	if err != nil {
+		log.Fatal("Failed to create bot", "error", err)
 	}
 
-	logger.Info("ServerEye Bot started successfully")
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	// Wait for shutdown signal
+	// Start bot
+	if err := bot.Start(ctx); err != nil {
+		log.Fatal("Failed to start bot", "error", err)
+	}
+
+	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	<-sigChan
 
-	logger.Info("Shutting down bot...")
-	if err := botInstance.Stop(); err != nil {
-		logger.WithError(err).Error("Error during shutdown")
-	}
-}
+	log.Info("ServerEyeBot is running. Press Ctrl+C to stop.")
 
-// setupLogger configures and returns a logger instance
-func setupLogger(level string) *logrus.Logger {
-	logger := logrus.New()
+	// Wait for signal
+	sig := <-sigChan
+	log.Info("Received signal", "signal", sig.String())
 
-	// Set log level
-	logLevel, err := logrus.ParseLevel(level)
-	if err != nil {
-		logLevel = logrus.InfoLevel
-	}
-	logger.SetLevel(logLevel)
+	// Graceful shutdown
+	log.Info("Shutting down ServerEyeBot...")
+	bot.Stop()
 
-	// Set formatter for production (JSON) or development (text)
-	if os.Getenv("ENVIRONMENT") == "production" {
-		logger.SetFormatter(&logrus.JSONFormatter{})
-	} else {
-		logger.SetFormatter(&logrus.TextFormatter{
-			FullTimestamp: true,
-			ForceColors:   true,
-		})
-	}
-
-	return logger
-}
-
-// loadConfigFromEnv loads configuration from environment variables
-func loadConfigFromEnv() (*config.BotConfig, error) {
-	telegramToken := os.Getenv("TELEGRAM_TOKEN")
-
-	if telegramToken == "" {
-		return nil, fmt.Errorf("missing required environment variables")
-	}
-
-	return &config.BotConfig{
-		Telegram: config.TelegramConfig{
-			Token: telegramToken,
-		},
-		Logging: config.LoggingConfig{
-			Level: "info",
-		},
-	}, nil
+	log.Info("ServerEyeBot stopped successfully")
 }

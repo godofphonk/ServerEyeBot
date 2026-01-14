@@ -1,4 +1,5 @@
-# Binaries for programs and plugins
+# Build artifacts
+bin/
 *.exe
 *.exe~
 *.dll
@@ -11,29 +12,11 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Dependency directories
+vendor/
 
 # Go workspace file
 go.work
-
-# Build directory
-build/
-
-# Configuration files with secrets
-*.env
-!.env*.example
-.env.dev
-.env.prod
-.env.local
-config.yaml
-bot-config.yaml
-bot-config-*.yaml
-config-*.yaml
-
-# Log files
-*.log
-logs/
 
 # IDE files
 .vscode/
@@ -42,7 +25,7 @@ logs/
 *.swo
 *~
 
-# OS generated files
+# OS files
 .DS_Store
 .DS_Store?
 ._*
@@ -51,32 +34,34 @@ logs/
 ehthumbs.db
 Thumbs.db
 
-# Docker volumes
-postgres_data/
-redis_data/
+# Logs
+logs/
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docker
+.dockerignore
+
+# Coverage files
+coverage.out
+coverage.html
+
+# Mocks
+mocks/
 
 # Temporary files
 tmp/
 temp/
 
-# Private deployment files
-private/
+# Database files
+*.db
+*.sqlite
+*.sqlite3
 
-# Built binaries (exclude from root)
-servereye-*
-
-# Downloads directory with distribution binaries
-downloads/
-
-
-# Test coverage files
-coverage
-coverage.txt
-coverage.out
-coverage.html
-
-# Documentation files (exclude from git root)
-*.md
-
-# WorkDocs - all documentation and working files
-WorkDocs/
+# Configuration files (if they contain secrets)
+config.local.yaml
+secrets.yaml
