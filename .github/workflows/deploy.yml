@@ -1,0 +1,244 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main, production ]
+  pull_request:
+    branches: [ main, production ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: godofphonk/servereyebot
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+        
+    - name: Cache Go modules
+      uses: actions/cache@v5
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+          
+    - name: Download dependencies
+      run: go mod download
+      
+    - name: Run tests
+      run: go test -v ./...
+      
+    - name: Run linter
+      run: make lint
+      
+    - name: Build
+      run: make build
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/production'
+    
+    permissions:
+      contents: read
+      packages: write
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+        clean: true
+        
+    - name: Set BUILD_DATE and VERSION
+      run: |
+        echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+        echo "VERSION=${{ github.sha }}" >> $GITHUB_ENV
+        echo "COMMIT_SHA=${{ github.sha }}" >> $GITHUB_ENV
+        
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Build and push Docker image
+      run: |
+        # Create unique tag
+        UNIQUE_TAG="production-${{ github.sha }}-$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+        echo "Building with unique tag: $UNIQUE_TAG"
+        
+        # Force clean everything
+        echo "=== Cleaning git repository ==="
+        git clean -fdx
+        git reset --hard HEAD
+        git fetch --all --prune
+        
+        # Create completely isolated build environment
+        echo "=== Creating isolated build environment ==="
+        BUILD_DIR="/tmp/servereyebot-build-$(date +%s)"
+        mkdir -p $BUILD_DIR
+        cp -r . $BUILD_DIR/
+        cd $BUILD_DIR
+        
+        # Force rebuild everything
+        echo "=== Building Docker image ==="
+        docker system prune -a -f
+        docker builder prune -a -f
+        
+        # Build with explicit context and no caching
+        docker build \
+          --no-cache \
+          --pull \
+          --force-rm \
+          --build-arg BUILD_DATE=${{ env.BUILD_DATE }} \
+          --build-arg VERSION=${{ env.VERSION }} \
+          --build-arg COMMIT_SHA=${{ env.COMMIT_SHA }} \
+          --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$UNIQUE_TAG \
+          --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production \
+          --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+          .
+        
+        # Push all tags
+        echo "=== Pushing images ==="
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$UNIQUE_TAG
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
+        docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        
+        echo "✅ Build and push completed successfully!"
+
+  deploy-production:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/production'
+    
+    steps:
+    - name: Deploy to production
+      uses: appleboy/ssh-action@v1.2.4
+      with:
+        host: ${{ secrets.PROD_HOST }}
+        username: ${{ secrets.PROD_USER }}
+        key: ${{ secrets.PROD_SSH_KEY }}
+        script: |
+          cd /opt/servereyebot
+          
+          # Set variables
+          UNIQUE_TAG="production-${{ github.sha }}-$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          
+          echo "=== Deploying image: $IMAGE_NAME:$UNIQUE_TAG ==="
+          
+          # Stop everything completely
+          echo "=== Stopping all services ==="
+          docker-compose down -v --remove-orphans || true
+          docker stop servereyebot || true
+          docker rm servereyebot || true
+          
+          # Clean up Docker completely
+          echo "=== Cleaning up Docker ==="
+          docker system prune -a -f
+          docker volume prune -f
+          
+          # Pull fresh image
+          echo "=== Pulling new image ==="
+          docker pull $IMAGE_NAME:$UNIQUE_TAG
+          docker tag $IMAGE_NAME:$UNIQUE_TAG $IMAGE_NAME:production
+          docker tag $IMAGE_NAME:$UNIQUE_TAG $IMAGE_NAME:latest
+          
+          # Create docker-compose.yml
+          cat > docker-compose.yml << 'COMPOSE_EOF'
+          version: '3.8'
+
+          services:
+            servereyebot:
+              image: ghcr.io/godofphonk/servereyebot:production
+              container_name: ServerEyeBot-TelegramBot
+              restart: unless-stopped
+              environment:
+                - TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}
+                - LOG_LEVEL=${{ vars.LOG_LEVEL || 'info' }}
+                - ENV=production
+                - API_BASE_URL=http://host.docker.internal:8080
+                - PORT=${{ vars.BOT_PORT || '8091' }}
+                - ADMIN_USER_ID=${{ secrets.ADMIN_USER_ID }}
+                - DATABASE_URL=postgres://servereyebot:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/servereyebot?sslmode=disable
+              extra_hosts:
+                - "host.docker.internal:host-gateway"
+              ports:
+                - "${{ vars.BOT_PORT || '8092' }}:8080"
+              volumes:
+                - ./logs:/app/logs
+              networks:
+                - servereyebot-network
+              depends_on:
+                - postgres
+              healthcheck:
+                test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 40s
+
+            postgres:
+              image: postgres:15-alpine
+              container_name: ServerEyeBot-PostgreSQL
+              restart: unless-stopped
+              environment:
+                - POSTGRES_DB=servereyebot
+                - POSTGRES_USER=servereyebot
+                - POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+              ports:
+                - "${{ vars.POSTGRES_PORT || '5434' }}:5432"
+              volumes:
+                - postgres_data:/var/lib/postgresql/data
+                - ./migrations:/docker-entrypoint-initdb.d
+              networks:
+                - servereyebot-network
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U servereyebot -d servereyebot"]
+                interval: 10s
+                timeout: 5s
+                retries: 5
+
+          volumes:
+            postgres_data:
+
+          networks:
+            servereyebot-network:
+              driver: bridge
+          COMPOSE_EOF
+
+          # Start database services
+          echo "=== Starting database services ==="
+          docker-compose up -d postgres
+          sleep 15
+          
+          # Start main application
+          echo "=== Starting main application ==="
+          docker-compose up -d servereyebot
+          
+          # Wait for services
+          echo "=== Waiting for services to start ==="
+          sleep 30
+          
+          # Health check
+          echo "=== Performing health check ==="
+          sleep 30
+          if ! curl -f http://localhost:${{ vars.BOT_PORT || '8092' }}/health; then
+            echo "❌ Health check failed!"
+            docker logs ServerEyeBot-TelegramBot --tail 50
+            docker logs ServerEyeBot-PostgreSQL --tail 20
+            exit 1
+          fi
+          
+          # Final cleanup
+          docker image prune -f
+          echo "✅ Production deployment successful!"
