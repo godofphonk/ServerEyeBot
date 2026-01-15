@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/servereye/servereyebot/pkg/domain"
 	"github.com/servereye/servereyebot/pkg/errors"
 )
 
@@ -165,4 +166,42 @@ func ValidateServerID(serverID string) error {
 	}
 
 	return nil
+}
+
+// GetServerMetrics retrieves server metrics by server key
+func (c *Client) GetServerMetrics(ctx context.Context, serverKey string) (*domain.MetricsResponse, error) {
+	c.logger.Debug("Getting server metrics", "server_key", serverKey)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/metrics", c.baseURL, serverKey)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, errors.NewInternalError("failed to create request", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to get server metrics", "error", err, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", "get server metrics", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
+		return nil, errors.NewNotFoundError(fmt.Sprintf("server with key '%s'", serverKey))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	var response domain.MetricsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, errors.NewInternalError("failed to decode response", err)
+	}
+
+	c.logger.Info("Server metrics retrieved successfully", "server_key", serverKey)
+
+	return &response, nil
 }

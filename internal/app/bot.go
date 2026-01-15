@@ -21,14 +21,15 @@ import (
 
 // Bot represents the updated bot with PostgreSQL integration
 type Bot struct {
-	config        *config.Config
-	logger        logger.Logger
-	telegramSvc   domain.TelegramService
-	serverService *service.ServerService
-	userService   domain.UserService
-	updateHandler UpdateHandler
-	commandRouter CommandRouter
-	postgres      *storage.PostgreSQL
+	config         *config.Config
+	logger         logger.Logger
+	telegramSvc    domain.TelegramService
+	serverService  *service.ServerService
+	userService    domain.UserService
+	metricsService *services.MetricsServiceImpl
+	updateHandler  UpdateHandler
+	commandRouter  CommandRouter
+	postgres       *storage.PostgreSQL
 }
 
 // UpdateHandler handles telegram updates
@@ -74,21 +75,25 @@ func New(cfg *config.Config, log logger.Logger) (*Bot, error) {
 	serverService := service.NewServerService(serverRepo, userRepo, userServerRepo)
 	userService := services.NewUserServiceAdapter(realUserService)
 
+	// Create metrics service
+	metricsService := services.NewMetricsService(apiClient, &logrusAdapter{logger: log})
+
 	// Create command router
-	commandRouter := NewDefaultCommandRouterNew(log, telegramSvc, userService, serverService)
+	commandRouter := NewDefaultCommandRouterNew(log, telegramSvc, userService, serverService, metricsService)
 
 	// Create update handler
 	updateHandler := NewDefaultUpdateHandlerNew(log, telegramSvc, userService, commandRouter)
 
 	bot := &Bot{
-		config:        cfg,
-		logger:        log,
-		telegramSvc:   telegramSvc,
-		serverService: serverService,
-		userService:   userService,
-		updateHandler: updateHandler,
-		commandRouter: commandRouter,
-		postgres:      postgres,
+		config:         cfg,
+		logger:         log,
+		telegramSvc:    telegramSvc,
+		serverService:  serverService,
+		userService:    userService,
+		metricsService: metricsService,
+		updateHandler:  updateHandler,
+		commandRouter:  commandRouter,
+		postgres:       postgres,
 	}
 
 	// Register commands
@@ -126,6 +131,48 @@ func (b *Bot) registerCommands() error {
 			Handler:     b.handleAddServerCommand,
 			Permissions: []string{},
 		},
+		{
+			Name:        "cpu",
+			Description: "Show CPU metrics",
+			Handler:     b.handleCPUCommand,
+			Permissions: []string{},
+		},
+		{
+			Name:        "memory",
+			Description: "Show memory metrics",
+			Handler:     b.handleMemoryCommand,
+			Permissions: []string{},
+		},
+		{
+			Name:        "disk",
+			Description: "Show disk metrics",
+			Handler:     b.handleDiskCommand,
+			Permissions: []string{},
+		},
+		{
+			Name:        "temp",
+			Description: "Show temperature metrics",
+			Handler:     b.handleTempCommand,
+			Permissions: []string{},
+		},
+		{
+			Name:        "network",
+			Description: "Show network metrics",
+			Handler:     b.handleNetworkCommand,
+			Permissions: []string{},
+		},
+		{
+			Name:        "system",
+			Description: "Show system information",
+			Handler:     b.handleSystemCommand,
+			Permissions: []string{},
+		},
+		{
+			Name:        "all",
+			Description: "Show all metrics summary",
+			Handler:     b.handleAllCommand,
+			Permissions: []string{},
+		},
 	}
 
 	for _, cmd := range commands {
@@ -144,6 +191,13 @@ func (b *Bot) getCommandList() []domain.BotCommand {
 		{Command: "help", Description: "Show available commands"},
 		{Command: "servers", Description: "List your servers"},
 		{Command: "add", Description: "Add server to monitor"},
+		{Command: "cpu", Description: "Show CPU metrics"},
+		{Command: "memory", Description: "Show memory metrics"},
+		{Command: "disk", Description: "Show disk metrics"},
+		{Command: "temp", Description: "Show temperature metrics"},
+		{Command: "network", Description: "Show network metrics"},
+		{Command: "system", Description: "Show system information"},
+		{Command: "all", Description: "Show all metrics summary"},
 	}
 }
 
@@ -158,9 +212,18 @@ func (b *Bot) handleStartCommand(ctx context.Context, cmd *domain.Command, args 
 
 *Доступные команды:*
 /start - Показать это сообщение
-/help - Помощь
+/help - Помощь и список всех команд
 /servers - Список ваших серверов
 /add <server_id> - Добавить сервер
+
+*Команды метрик:*
+/cpu - Загрузка процессора
+/memory - Использование памяти
+/disk - Дисковое пространство
+/temp - Температура системы
+/network - Сетевая активность
+/system - Системная информация
+/all - Все метрики (кратко)
 
 Начните с команды /servers чтобы увидеть ваши серверы!`
 
@@ -172,16 +235,26 @@ func (b *Bot) handleHelpCommand(ctx context.Context, cmd *domain.Command, args [
 
 	message := `📖 *Помощь ServerEyeBot*
 
-*Команды:*
+*Основные команды:*
 • /start - Приветствие
 • /help - Эта справка
 • /servers - Показать ваши серверы
 • /add <server_id> - Добавить сервер (например: /add srv_12313)
 
+*Команды метрик:*
+• /cpu - Загрузка процессора
+• /memory - Использование памяти
+• /disk - Дисковое пространство
+• /temp - Температура системы
+• /network - Сетевая активность
+• /system - Системная информация
+• /all - Все метрики (кратко)
+
 *Как добавить сервер:*
 1. Используйте команду /add srv_12313
 2. Бот добавит сервер в ваш список
 3. Проверьте через /servers
+4. Используйте команды метрик для просмотра данных
 
 *Управление серверами:*
 Один пользователь может иметь много серверов, и один сервер может быть доступен многим пользователям.
@@ -485,20 +558,22 @@ func createRemoveServerKeyboard(servers []models.ServerWithDetails) interface{} 
 
 // DefaultCommandRouter implements CommandRouter
 type DefaultCommandRouter struct {
-	logger        logger.Logger
-	telegramSvc   domain.TelegramService
-	userService   domain.UserService
-	serverService *service.ServerService
-	commands      map[string]*domain.Command
+	logger         logger.Logger
+	telegramSvc    domain.TelegramService
+	userService    domain.UserService
+	serverService  *service.ServerService
+	metricsService *services.MetricsServiceImpl
+	commands       map[string]*domain.Command
 }
 
-func NewDefaultCommandRouterNew(log logger.Logger, telegramSvc domain.TelegramService, userService domain.UserService, serverService *service.ServerService) *DefaultCommandRouter {
+func NewDefaultCommandRouterNew(log logger.Logger, telegramSvc domain.TelegramService, userService domain.UserService, serverService *service.ServerService, metricsService *services.MetricsServiceImpl) *DefaultCommandRouter {
 	return &DefaultCommandRouter{
-		logger:        log,
-		telegramSvc:   telegramSvc,
-		userService:   userService,
-		serverService: serverService,
-		commands:      make(map[string]*domain.Command),
+		logger:         log,
+		telegramSvc:    telegramSvc,
+		userService:    userService,
+		serverService:  serverService,
+		metricsService: metricsService,
+		commands:       make(map[string]*domain.Command),
 	}
 }
 
@@ -627,4 +702,120 @@ func (b *Bot) handleShowRemoveServers(ctx context.Context, callbackID string, te
 	}
 
 	return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "❌ Внутренняя ошибка сервиса")
+}
+
+// Metrics command handlers
+
+func (b *Bot) handleCPUCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	telegramID := ctx.Value("user_id").(int64)
+	chatID := ctx.Value("chat_id").(int64)
+
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "cpu", func(metrics *domain.ServerMetrics) string {
+		return b.metricsService.FormatCPU(metrics)
+	})
+}
+
+func (b *Bot) handleMemoryCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	telegramID := ctx.Value("user_id").(int64)
+	chatID := ctx.Value("chat_id").(int64)
+
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "memory", func(metrics *domain.ServerMetrics) string {
+		return b.metricsService.FormatMemory(metrics)
+	})
+}
+
+func (b *Bot) handleDiskCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	telegramID := ctx.Value("user_id").(int64)
+	chatID := ctx.Value("chat_id").(int64)
+
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "disk", func(metrics *domain.ServerMetrics) string {
+		return b.metricsService.FormatDisk(metrics)
+	})
+}
+
+func (b *Bot) handleTempCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	telegramID := ctx.Value("user_id").(int64)
+	chatID := ctx.Value("chat_id").(int64)
+
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "temperature", func(metrics *domain.ServerMetrics) string {
+		return b.metricsService.FormatTemperature(metrics)
+	})
+}
+
+func (b *Bot) handleNetworkCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	telegramID := ctx.Value("user_id").(int64)
+	chatID := ctx.Value("chat_id").(int64)
+
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "network", func(metrics *domain.ServerMetrics) string {
+		return b.metricsService.FormatNetwork(metrics)
+	})
+}
+
+func (b *Bot) handleSystemCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	telegramID := ctx.Value("user_id").(int64)
+	chatID := ctx.Value("chat_id").(int64)
+
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "system", func(metrics *domain.ServerMetrics) string {
+		return b.metricsService.FormatSystem(metrics)
+	})
+}
+
+func (b *Bot) handleAllCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	telegramID := ctx.Value("user_id").(int64)
+	chatID := ctx.Value("chat_id").(int64)
+
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "all", func(metrics *domain.ServerMetrics) string {
+		return b.metricsService.FormatAll(metrics)
+	})
+}
+
+// handleMetricsCommand is a generic handler for metrics commands
+func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64, metricType string, formatter func(*domain.ServerMetrics) string) error {
+	b.logger.Info("Getting metrics", "type", metricType, "telegram_id", telegramID, "chat_id", chatID)
+
+	// Get user servers
+	if adapter, ok := b.userService.(*services.UserServiceAdapter); ok {
+		user, err := adapter.GetUser(ctx, telegramID)
+		if err != nil {
+			b.logger.Error("Failed to get user", "error", err, "telegram_id", telegramID)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка. Попробуйте позже.")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			b.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Произошла ошибка при получении списка серверов. Попробуйте позже.")
+		}
+
+		if len(servers) == 0 {
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ У вас нет добавленных серверов. Используйте /add <server_id> для добавления сервера.")
+		}
+
+		// For now, handle single server case
+		// TODO: Implement server selection for multiple servers
+		server := servers[0]
+		serverKey := server.Server.ID
+
+		// Get metrics
+		metrics, err := b.metricsService.GetServerMetrics(serverKey)
+		if err != nil {
+			b.logger.Error("Failed to get server metrics", "error", err, "server_key", serverKey)
+
+			// Check error type and provide specific message
+			errorMsg := err.Error()
+			if strings.Contains(errorMsg, "not found") {
+				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Сервер `%s` не найден.", serverKey))
+			} else if strings.Contains(errorMsg, "API error") {
+				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Не удалось получить метрики для сервера `%s`. Попробуйте позже.", serverKey))
+			} else {
+				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Не удалось получить метрики. Попробуйте позже."))
+			}
+		}
+
+		// Format and send metrics
+		formattedMetrics := formatter(&metrics.Metrics)
+		return b.telegramSvc.SendMessage(ctx, chatID, formattedMetrics)
+	}
+
+	return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка сервиса. Попробуйте позже.")
 }
