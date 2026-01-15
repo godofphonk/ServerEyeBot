@@ -794,7 +794,14 @@ func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64
 		// For now, handle single server case
 		// TODO: Implement server selection for multiple servers
 		server := servers[0]
+
+		// Use server ID as the server key for API calls
 		serverKey := server.Server.ID
+
+		b.logger.Info("Using server for metrics",
+			"server_id", server.Server.ID,
+			"server_name", server.Server.Name,
+			"server_key", serverKey)
 
 		// Get metrics
 		metrics, err := b.metricsService.GetServerMetrics(serverKey)

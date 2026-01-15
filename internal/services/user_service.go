@@ -80,8 +80,8 @@ func (s *UserService) AddServerToUser(ctx context.Context, userID int64, serverK
 			log.Printf("TGBot source already exists for server %s", serverKey)
 		}
 
-		// Use server_id from API response for database storage
-		return s.repo.AddServerToUser(userID, sourcesResp.ServerID, source)
+		// Use the original serverKey for database storage (not ServerID from API)
+		return s.repo.AddServerToUser(userID, serverKey, source)
 	} else {
 		log.Printf("API client not available, skipping server validation")
 		return s.repo.AddServerToUser(userID, serverKey, source)

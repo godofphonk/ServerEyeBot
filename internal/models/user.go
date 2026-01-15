@@ -38,6 +38,7 @@ type UserServer struct {
 // ServerWithDetails represents server with user relationship info
 type ServerWithDetails struct {
 	Server
-	Source  string    `json:"source"`
-	AddedAt time.Time `json:"added_at"`
+	Source    string    `json:"source"`
+	AddedAt   time.Time `json:"added_at"`
+	ServerKey string    `json:"server_key"` // API key for metrics
 }
