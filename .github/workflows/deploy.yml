@@ -184,14 +184,6 @@ jobs:
                 - ./logs:/app/logs
               networks:
                 - servereyebot-network
-              depends_on:
-                - postgres
-              healthcheck:
-                test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8091/health"]
-                interval: 30s
-                timeout: 10s
-                retries: 3
-                start_period: 40s
 
             postgres:
               image: postgres:15-alpine
