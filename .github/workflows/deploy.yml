@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, production ]
   pull_request:
-    branches: [ main, production ]
+    branches: [ main ]
 
 env:
   REGISTRY: ghcr.io
@@ -13,6 +13,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
     steps:
     - uses: actions/checkout@v6
     
@@ -45,7 +46,6 @@ jobs:
       run: make build
 
   build-and-push:
-    needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/production'
     
@@ -119,7 +119,6 @@ jobs:
         echo "✅ Build and push completed successfully!"
 
   deploy-production:
-    needs: build-and-push
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/production'
     
