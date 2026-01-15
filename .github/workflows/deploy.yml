@@ -184,6 +184,12 @@ jobs:
                 - ./logs:/app/logs
               networks:
                 - servereyebot-network
+              healthcheck:
+                test: ["CMD", "pgrep", "-f", "servereye-bot"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 40s
 
             postgres:
               image: postgres:15-alpine
