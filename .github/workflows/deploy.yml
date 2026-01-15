@@ -144,6 +144,10 @@ jobs:
           # Stop everything completely
           echo "=== Stopping all services ==="
           docker-compose down -v --remove-orphans || true
+          docker stop ServerEyeBot-TelegramBot || true
+          docker rm ServerEyeBot-TelegramBot || true
+          docker stop ServerEyeBot-PostgreSQL || true
+          docker rm ServerEyeBot-PostgreSQL || true
           docker stop servereyebot || true
           docker rm servereyebot || true
           
@@ -154,9 +158,8 @@ jobs:
           
           # Pull fresh image
           echo "=== Pulling new image ==="
-          docker pull $IMAGE_NAME:$UNIQUE_TAG
-          docker tag $IMAGE_NAME:$UNIQUE_TAG $IMAGE_NAME:production
-          docker tag $IMAGE_NAME:$UNIQUE_TAG $IMAGE_NAME:latest
+          docker pull $IMAGE_NAME:production
+          docker pull $IMAGE_NAME:latest
           
           # Create docker-compose.yml
           cat > docker-compose.yml << 'COMPOSE_EOF'
