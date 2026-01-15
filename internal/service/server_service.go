@@ -69,7 +69,7 @@ func (s *ServerService) AddServerToUser(ctx context.Context, telegramUserID int6
 	// Create the user-server relationship
 	userServer := &domain.UserServer{
 		UserID:   user.ID,
-		ServerID: server.ID,
+		ServerID: server.ServerID,
 		Role:     role,
 	}
 

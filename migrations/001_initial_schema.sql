@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS servers (
 CREATE TABLE IF NOT EXISTS user_servers (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    server_id VARCHAR(255) NOT NULL, -- Store server_key directly
+    server_id VARCHAR(255) NOT NULL, -- Store server_key directly, no foreign key
     role VARCHAR(50) DEFAULT 'viewer', -- owner, admin, viewer
     added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, server_id)

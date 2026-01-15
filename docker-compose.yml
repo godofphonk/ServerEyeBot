@@ -1,8 +1,6 @@
 services:
   servereye-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/godofphonk/servereyebot:production
     container_name: ServerEyeBot-TelegramBot
     restart: unless-stopped
     environment:

@@ -168,8 +168,7 @@ type Server struct {
 type UserServer struct {
 	ID        int       `json:"id"`
 	UserID    int       `json:"user_id"`
-	ServerID  int       `json:"server_id"`
-	Source    string    `json:"source"`
+	ServerID  string    `json:"server_id"`
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -196,9 +195,8 @@ type Chat struct {
 // ServerWithDetails represents server with user relationship info
 type ServerWithDetails struct {
 	Server
-	Source  string    `json:"source"`
+	Role    string    `json:"role"`
 	AddedAt time.Time `json:"added_at"`
-	Role    string    `json:"role"` // owner, admin, viewer
 }
 
 // UserRepository defines the interface for user database operations

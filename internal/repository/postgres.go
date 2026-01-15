@@ -136,7 +136,7 @@ ORDER BY us.added_at DESC
 		err := rows.Scan(
 			&server.ID, &server.Name, &server.Description,
 			&server.CreatedAt, &server.UpdatedAt,
-			&server.Source, &server.AddedAt,
+			&server.Role, &server.AddedAt,
 		)
 		if err != nil {
 			return nil, err
