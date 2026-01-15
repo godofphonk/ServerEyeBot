@@ -130,6 +130,9 @@ jobs:
         username: ${{ secrets.PROD_USER }}
         key: ${{ secrets.PROD_SSH_KEY }}
         script: |
+          # Create directory if it doesn't exist
+          sudo mkdir -p /opt/servereyebot
+          sudo chown $USER:$USER /opt/servereyebot
           cd /opt/servereyebot
           
           # Set variables
@@ -157,8 +160,6 @@ jobs:
           
           # Create docker-compose.yml
           cat > docker-compose.yml << 'COMPOSE_EOF'
-          version: '3.8'
-
           services:
             servereyebot:
               image: ghcr.io/godofphonk/servereyebot:production
@@ -175,7 +176,7 @@ jobs:
               extra_hosts:
                 - "host.docker.internal:host-gateway"
               ports:
-                - "${{ vars.BOT_PORT || '8092' }}:8080"
+                - "${{ vars.BOT_PORT || '8092' }}:8091"
               volumes:
                 - ./logs:/app/logs
               networks:
@@ -183,7 +184,7 @@ jobs:
               depends_on:
                 - postgres
               healthcheck:
-                test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+                test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8091/health"]
                 interval: 30s
                 timeout: 10s
                 retries: 3
