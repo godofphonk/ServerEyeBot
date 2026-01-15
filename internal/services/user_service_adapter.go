@@ -74,7 +74,17 @@ func (a *UserServiceAdapter) AddServerToUser(ctx context.Context, userID int64, 
 	return a.service.AddServerToUser(ctx, userID, serverID, source)
 }
 
+// RemoveServerFromUser removes a server from user's server list
+func (a *UserServiceAdapter) RemoveServerFromUser(ctx context.Context, userID int64, serverID string) error {
+	return a.service.RemoveServerFromUser(ctx, userID, serverID)
+}
+
 // FormatServersList formats servers list for display
 func (a *UserServiceAdapter) FormatServersList(servers []models.ServerWithDetails) string {
 	return a.service.FormatServersList(servers)
+}
+
+// FormatServersListPlain formats servers list for display without Markdown
+func (a *UserServiceAdapter) FormatServersListPlain(servers []models.ServerWithDetails) string {
+	return a.service.FormatServersListPlain(servers)
 }

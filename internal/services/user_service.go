@@ -111,7 +111,7 @@ func (s *UserService) FormatServersList(servers []models.ServerWithDetails) stri
 		return "У вас пока нет добавленных серверов.\n\nИспользуйте команду /add <server_id> чтобы добавить сервер."
 	}
 
-	result := fmt.Sprintf("�� **Ваши серверы (%d):**\n\n", len(servers))
+	result := fmt.Sprintf("*Ваши серверы (%d):*\n\n", len(servers))
 
 	for i, server := range servers {
 		result += fmt.Sprintf("%d. `%s`", i+1, server.ID)
@@ -120,8 +120,30 @@ func (s *UserService) FormatServersList(servers []models.ServerWithDetails) stri
 			result += fmt.Sprintf(" - %s", server.Name)
 		}
 
-		result += fmt.Sprintf("\n   📅 Добавлен: %s\n", server.AddedAt.Format("02.01.2006 15:04"))
-		result += fmt.Sprintf("   🔗 Источник: %s\n\n", server.Source)
+		result += fmt.Sprintf("\nДобавлен: %s\n", server.AddedAt.Format("02.01.2006 15:04"))
+		result += fmt.Sprintf("Источник: %s\n\n", server.Source)
+	}
+
+	return result
+}
+
+// FormatServersListPlain formats servers list for display without Markdown
+func (s *UserService) FormatServersListPlain(servers []models.ServerWithDetails) string {
+	if len(servers) == 0 {
+		return "У вас пока нет добавленных серверов.\n\nИспользуйте команду /add <server_id> чтобы добавить сервер."
+	}
+
+	result := fmt.Sprintf("Ваши серверы (%d):\n\n", len(servers))
+
+	for i, server := range servers {
+		result += fmt.Sprintf("%d. %s", i+1, server.ID)
+
+		if server.Name != server.ID {
+			result += fmt.Sprintf(" - %s", server.Name)
+		}
+
+		result += fmt.Sprintf("\nДобавлен: %s\n", server.AddedAt.Format("02.01.2006 15:04"))
+		result += fmt.Sprintf("Источник: %s\n\n", server.Source)
 	}
 
 	return result

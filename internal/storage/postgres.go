@@ -272,9 +272,9 @@ func (p *PostgreSQL) CreateUserServer(ctx context.Context, userServer *domain.Us
 			added_at = EXCLUDED.added_at
 		RETURNING id`
 
-	userServer.AddedAt = time.Now()
+	userServer.CreatedAt = time.Now()
 	err := p.db.QueryRowContext(ctx, query,
-		userServer.UserID, userServer.ServerID, userServer.Role, userServer.AddedAt).
+		userServer.UserID, userServer.ServerID, userServer.Role, userServer.CreatedAt).
 		Scan(&userServer.ID)
 
 	if err != nil {

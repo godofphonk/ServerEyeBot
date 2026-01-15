@@ -9,6 +9,7 @@ import (
 	"github.com/servereye/servereyebot/internal/api"
 	"github.com/servereye/servereyebot/internal/config"
 	"github.com/servereye/servereyebot/internal/logger"
+	"github.com/servereye/servereyebot/internal/models"
 	"github.com/servereye/servereyebot/internal/repository"
 	"github.com/servereye/servereyebot/internal/service"
 	"github.com/servereye/servereyebot/internal/services"
@@ -211,8 +212,22 @@ func (b *Bot) handleServersCommand(ctx context.Context, cmd *domain.Command, arg
 			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Произошла ошибка при получении списка серверов. Попробуйте позже.")
 		}
 
-		// Format and send servers list
-		message := adapter.FormatServersList(servers)
+		// Format and send servers list with remove button
+		message := adapter.FormatServersListPlain(servers)
+
+		if len(servers) > 0 {
+			// Create inline keyboard with remove button
+			keyboard := [][]map[string]string{
+				{
+					{
+						"text":          "Удалить сервер",
+						"callback_data": "show_remove_servers",
+					},
+				},
+			}
+			return b.telegramSvc.SendMessageWithKeyboard(ctx, chatID, message, keyboard)
+		}
+
 		return b.telegramSvc.SendMessage(ctx, chatID, message)
 	}
 
@@ -366,9 +381,106 @@ func (h *DefaultUpdateHandler) handleRegularMessage(ctx context.Context, message
 func (h *DefaultUpdateHandler) handleCallbackData(ctx context.Context, callback *telegram.CallbackQuery) error {
 	// Handle button callbacks
 	switch callback.Data {
+	case "show_remove_servers":
+		// Handle show remove servers callback - need to get bot instance differently
+		return h.handleShowRemoveServersCallback(ctx, callback)
 	default:
+		// Handle server removal callbacks
+		if len(callback.Data) > 14 && callback.Data[:14] == "remove_server:" {
+			return h.handleRemoveServerCallback(ctx, callback)
+		}
 		return h.telegramSvc.SendMessage(ctx, callback.Message.Chat.ID, "Unknown callback")
 	}
+}
+
+// handleShowRemoveServersCallback handles show remove servers callback
+func (h *DefaultUpdateHandler) handleShowRemoveServersCallback(ctx context.Context, callback *telegram.CallbackQuery) error {
+	// Get user servers using UserServiceAdapter
+	if adapter, ok := h.userService.(*services.UserServiceAdapter); ok {
+		// Get user from database to get correct user_id
+		user, err := adapter.GetUser(ctx, callback.From.ID)
+		if err != nil {
+			h.logger.Error("Failed to get user", "error", err, "telegram_id", callback.From.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			h.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Ошибка получения серверов")
+		}
+
+		if len(servers) == 0 {
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "У вас нет серверов для удаления")
+		}
+
+		// Create inline keyboard with server removal buttons
+		keyboard := createRemoveServerKeyboard(servers)
+
+		message := "Выберите сервер для удаления:\n\n"
+		for _, server := range servers {
+			message += fmt.Sprintf("• %s - %s\n", server.Server.ID, server.Server.Name)
+		}
+		message += "\nНажмите на сервер который хотите удалить"
+
+		// Answer callback and send new message
+		if err := h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "Показываю серверы для удаления"); err != nil {
+			h.logger.Error("Failed to answer callback", "error", err)
+		}
+
+		return h.telegramSvc.SendMessageWithKeyboard(ctx, callback.Message.Chat.ID, message, keyboard)
+	}
+
+	return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка сервиса")
+}
+
+// handleRemoveServerCallback handles remove server callback
+func (h *DefaultUpdateHandler) handleRemoveServerCallback(ctx context.Context, callback *telegram.CallbackQuery) error {
+	serverID := callback.Data[14:] // Remove "remove_server:" prefix
+
+	// Get user from database to get correct user_id
+	if adapter, ok := h.userService.(*services.UserServiceAdapter); ok {
+		user, err := adapter.GetUser(ctx, callback.From.ID)
+		if err != nil {
+			h.logger.Error("Failed to get user", "error", err, "telegram_id", callback.From.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка")
+		}
+
+		// Remove server from user
+		if err := adapter.RemoveServerFromUser(ctx, int64(user.ID), serverID); err != nil {
+			h.logger.Error("Failed to remove server", "error", err, "server_id", serverID, "user_id", user.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Не удалось удалить сервер")
+		}
+
+		// Answer callback and update message
+		callbackMsg := fmt.Sprintf("Сервер %s удален", serverID)
+		if err := h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, callbackMsg); err != nil {
+			h.logger.Error("Failed to answer callback", "error", err)
+		}
+
+		// Update original message to show server was removed
+		newMessage := fmt.Sprintf("Сервер %s успешно удален из вашего списка.", serverID)
+		return h.telegramSvc.EditMessage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, newMessage, nil)
+	}
+
+	return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка сервиса")
+}
+
+// createRemoveServerKeyboard creates inline keyboard for server removal
+func createRemoveServerKeyboard(servers []models.ServerWithDetails) interface{} {
+	var buttons [][]map[string]string
+
+	for _, server := range servers {
+		button := []map[string]string{
+			{
+				"text":          fmt.Sprintf("Удалить %s", server.Server.Name),
+				"callback_data": fmt.Sprintf("remove_server:%s", server.Server.ID),
+			},
+		}
+		buttons = append(buttons, button)
+	}
+
+	return buttons
 }
 
 // DefaultCommandRouter implements CommandRouter
@@ -472,4 +584,47 @@ func (l *logrusAdapter) Error(msg string, fields ...interface{}) {
 		}
 	}
 	l.logger.WithFields(fieldMap).Error(msg)
+}
+
+// handleShowRemoveServers handles the callback to show servers for removal
+func (b *Bot) handleShowRemoveServers(ctx context.Context, callbackID string, telegramID int64, chatID int64) error {
+	b.logger.Info("Getting servers for removal", "telegram_id", telegramID, "chat_id", chatID)
+
+	// Get user servers using UserServiceAdapter
+	if adapter, ok := b.userService.(*services.UserServiceAdapter); ok {
+		// Get user from database to get correct user_id
+		user, err := adapter.GetUser(ctx, telegramID)
+		if err != nil {
+			b.logger.Error("Failed to get user", "error", err, "telegram_id", telegramID)
+			return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "❌ Внутренняя ошибка")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			b.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "❌ Ошибка получения серверов")
+		}
+
+		if len(servers) == 0 {
+			return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "📋 У вас нет серверов для удаления")
+		}
+
+		// Create inline keyboard with server removal buttons
+		keyboard := b.createRemoveServerKeyboard(servers)
+
+		message := "🗑️ *Выберите сервер для удаления:*\n\n"
+		for _, server := range servers {
+			message += fmt.Sprintf("• `%s` - %s\n", server.Server.ID, server.Server.Name)
+		}
+		message += "\n_Нажмите на сервер который хотите удалить_"
+
+		// Answer callback and send new message
+		if err := b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "📋 Показываю серверы для удаления"); err != nil {
+			b.logger.Error("Failed to answer callback", "error", err)
+		}
+
+		return b.telegramSvc.SendMessageWithKeyboard(ctx, chatID, message, keyboard)
+	}
+
+	return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "❌ Внутренняя ошибка сервиса")
 }

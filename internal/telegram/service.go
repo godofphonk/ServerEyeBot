@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"fmt"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/servereye/servereyebot/pkg/domain"
@@ -48,17 +47,26 @@ func (ts *TelegramService) SendMessage(ctx context.Context, chatID int64, text s
 	return nil
 }
 
-// SendMessageWithKeyboard sends a message with keyboard to the specified chat
+// SendMessageWithKeyboard sends a message with inline keyboard
 func (ts *TelegramService) SendMessageWithKeyboard(ctx context.Context, chatID int64, text string, keyboard interface{}) error {
 	msg := tgbotapi.NewMessage(chatID, text)
 
-	switch k := keyboard.(type) {
-	case *tgbotapi.ReplyKeyboardMarkup:
-		msg.ReplyMarkup = k
-	case *tgbotapi.InlineKeyboardMarkup:
-		msg.ReplyMarkup = k
-	default:
-		return errors.NewValidationError("invalid keyboard type", map[string]interface{}{"type": fmt.Sprintf("%T", k)})
+	if keyboard != nil {
+		inlineKeyboard := tgbotapi.NewInlineKeyboardMarkup()
+		if rows, ok := keyboard.([][]map[string]string); ok {
+			for _, row := range rows {
+				var buttons []tgbotapi.InlineKeyboardButton
+				for _, buttonData := range row {
+					callbackData := buttonData["callback_data"]
+					buttons = append(buttons, tgbotapi.InlineKeyboardButton{
+						Text:         buttonData["text"],
+						CallbackData: &callbackData,
+					})
+				}
+				inlineKeyboard.InlineKeyboard = append(inlineKeyboard.InlineKeyboard, buttons)
+			}
+			msg.ReplyMarkup = &inlineKeyboard
+		}
 	}
 
 	_, err := ts.bot.Send(msg)
@@ -74,6 +82,48 @@ func (ts *TelegramService) AnswerCallback(ctx context.Context, callbackID, text 
 	_, err := ts.bot.Request(callback)
 	if err != nil {
 		return errors.NewTelegramAPIError("failed to answer callback", err)
+	}
+	return nil
+}
+
+// AnswerCallbackQuery answers a callback query
+func (ts *TelegramService) AnswerCallbackQuery(ctx context.Context, callbackID, text string) error {
+	callback := tgbotapi.CallbackConfig{
+		CallbackQueryID: callbackID,
+		Text:            text,
+	}
+	_, err := ts.bot.Request(callback)
+	if err != nil {
+		return errors.NewTelegramAPIError("failed to answer callback", err)
+	}
+	return nil
+}
+
+// EditMessage edits an existing message
+func (ts *TelegramService) EditMessage(ctx context.Context, chatID int64, messageID int, text string, keyboard interface{}) error {
+	msg := tgbotapi.NewEditMessageText(chatID, messageID, text)
+
+	if keyboard != nil {
+		inlineKeyboard := tgbotapi.NewInlineKeyboardMarkup()
+		if rows, ok := keyboard.([][]map[string]string); ok {
+			for _, row := range rows {
+				var buttons []tgbotapi.InlineKeyboardButton
+				for _, buttonData := range row {
+					callbackData := buttonData["callback_data"]
+					buttons = append(buttons, tgbotapi.InlineKeyboardButton{
+						Text:         buttonData["text"],
+						CallbackData: &callbackData,
+					})
+				}
+				inlineKeyboard.InlineKeyboard = append(inlineKeyboard.InlineKeyboard, buttons)
+			}
+			msg.ReplyMarkup = &inlineKeyboard
+		}
+	}
+
+	_, err := ts.bot.Send(msg)
+	if err != nil {
+		return errors.NewTelegramAPIError("failed to edit message", err)
 	}
 	return nil
 }

@@ -86,6 +86,8 @@ type TelegramService interface {
 	StartReceivingUpdates(ctx context.Context, handler interface{}) error
 	StopReceivingUpdates()
 	AnswerCallback(ctx context.Context, callbackID, text string) error
+	AnswerCallbackQuery(ctx context.Context, callbackID, text string) error
+	EditMessage(ctx context.Context, chatID int64, messageID int, text string, keyboard interface{}) error
 	SetCommands(ctx context.Context, commands []BotCommand) error
 }
 
@@ -164,11 +166,39 @@ type Server struct {
 
 // UserServer represents the relationship between users and servers
 type UserServer struct {
-	ID       int       `json:"id"`
-	UserID   int       `json:"user_id"`
-	ServerID int       `json:"server_id"`
-	Role     string    `json:"role"` // owner, admin, viewer
-	AddedAt  time.Time `json:"added_at"`
+	ID        int       `json:"id"`
+	UserID    int       `json:"user_id"`
+	ServerID  int       `json:"server_id"`
+	Source    string    `json:"source"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// CallbackQuery represents a callback query from inline keyboard
+type CallbackQuery struct {
+	ID      string  `json:"id"`
+	From    User    `json:"from"`
+	Message Message `json:"message"`
+	Data    string  `json:"data"`
+}
+
+// Message represents a telegram message
+type Message struct {
+	MessageID int  `json:"message_id"`
+	Chat      Chat `json:"chat"`
+}
+
+// Chat represents a telegram chat
+type Chat struct {
+	ID int64 `json:"id"`
+}
+
+// ServerWithDetails represents server with user relationship info
+type ServerWithDetails struct {
+	Server
+	Source  string    `json:"source"`
+	AddedAt time.Time `json:"added_at"`
+	Role    string    `json:"role"` // owner, admin, viewer
 }
 
 // UserRepository defines the interface for user database operations
