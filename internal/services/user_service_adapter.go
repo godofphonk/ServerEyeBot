@@ -34,11 +34,13 @@ func (a *UserServiceAdapter) IsAuthorized(userID int64) bool {
 // RegisterUser registers a user
 func (a *UserServiceAdapter) RegisterUser(ctx context.Context, user *domain.User) error {
 	modelUser := &models.User{
-		ID:        user.TelegramID, // Use TelegramID for models.User ID
-		Username:  user.Username,
-		FirstName: user.FirstName,
-		LastName:  user.LastName,
-		IsAdmin:   a.IsAdmin(user.TelegramID),
+		ID:         0,               // Let database generate ID
+		TelegramID: user.TelegramID, // Store TelegramID separately
+		Username:   user.Username,
+		FirstName:  user.FirstName,
+		LastName:   user.LastName,
+		IsAdmin:    a.IsAdmin(user.TelegramID),
+		IsActive:   true,
 	}
 	return a.service.RegisterOrUpdateUser(ctx, modelUser)
 }
@@ -51,8 +53,8 @@ func (a *UserServiceAdapter) GetUser(ctx context.Context, userID int64) (*domain
 	}
 
 	return &domain.User{
-		ID:         int(modelUser.ID), // Convert int64 to int for domain.User
-		TelegramID: modelUser.ID,      // Store TelegramID separately
+		ID:         int(modelUser.ID),    // Convert int64 to int for domain.User
+		TelegramID: modelUser.TelegramID, // Use actual TelegramID from database
 		Username:   modelUser.Username,
 		FirstName:  modelUser.FirstName,
 		LastName:   modelUser.LastName,

@@ -268,8 +268,10 @@ func (ts *TelegramService) StartReceivingUpdates(ctx context.Context, handler in
 				}
 
 				domainUpdate := ConvertUpdate(update)
-				if h, ok := handler.(func(context.Context, *Update) error); ok {
-					if err := h(ctx, domainUpdate); err != nil {
+				if h, ok := handler.(interface {
+					HandleUpdate(context.Context, *Update) error
+				}); ok {
+					if err := h.HandleUpdate(ctx, domainUpdate); err != nil {
 						ts.logger.Error("Error handling update", "error", err)
 						continue
 					}

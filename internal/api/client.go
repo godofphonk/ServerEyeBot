@@ -49,11 +49,59 @@ type AddServerSourceResponse struct {
 	Message  string `json:"message"`
 }
 
-// AddServerSource adds TGBot source to server
-func (c *Client) AddServerSource(ctx context.Context, serverID string) (*AddServerSourceResponse, error) {
-	c.logger.Debug("Adding server source", "server_id", serverID, "source", "TGBot")
+// GetServerSourcesResponse represents response from getting server sources
+type GetServerSourcesResponse struct {
+	ServerID  string   `json:"server_id"`
+	ServerKey string   `json:"server_key"`
+	Sources   []string `json:"sources"`
+}
 
-	url := fmt.Sprintf("%s/api/servers/%s/sources", c.baseURL, serverID)
+// GetServerSources gets server sources by server key
+func (c *Client) GetServerSources(ctx context.Context, serverKey string) (*GetServerSourcesResponse, error) {
+	c.logger.Debug("Getting server sources", "server_key", serverKey)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/sources", c.baseURL, serverKey)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, errors.NewInternalError("failed to create request", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to get server sources", "error", err, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", "get server sources", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
+		return nil, errors.NewNotFoundError(fmt.Sprintf("server with key '%s'", serverKey))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	var response GetServerSourcesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, errors.NewInternalError("failed to decode response", err)
+	}
+
+	c.logger.Info("Server sources retrieved successfully",
+		"server_id", response.ServerID,
+		"server_key", response.ServerKey,
+		"sources_count", len(response.Sources))
+
+	return &response, nil
+}
+
+// AddServerSourceByRequest adds TGBot source to server by key
+func (c *Client) AddServerSourceByRequest(ctx context.Context, serverKey string) (*AddServerSourceResponse, error) {
+	c.logger.Debug("Adding server source by key", "server_key", serverKey, "source", "TGBot")
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/sources", c.baseURL, serverKey)
 
 	reqBody := AddServerSourceRequest{
 		Source: "TGBot",
@@ -73,18 +121,18 @@ func (c *Client) AddServerSource(ctx context.Context, serverID string) (*AddServ
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		c.logger.Error("Failed to add server source", "error", err, "server_id", serverID)
+		c.logger.Error("Failed to add server source", "error", err, "server_key", serverKey)
 		return nil, errors.NewExternalError("ServerEye API", "add server source", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		c.logger.Warn("Server not found", "server_id", serverID, "status", resp.StatusCode)
-		return nil, errors.NewNotFoundError(fmt.Sprintf("server with ID '%s'", serverID))
+		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
+		return nil, errors.NewNotFoundError(fmt.Sprintf("server with key '%s'", serverKey))
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_id", serverID)
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey)
 		return nil, errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
 	}
 
@@ -94,7 +142,7 @@ func (c *Client) AddServerSource(ctx context.Context, serverID string) (*AddServ
 	}
 
 	c.logger.Info("Server source added successfully",
-		"server_id", serverID,
+		"server_id", response.ServerID,
 		"source", response.Source,
 		"message", response.Message)
 

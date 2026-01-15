@@ -1,113 +1,119 @@
 package repository
 
 import (
-"database/sql"
-"fmt"
-"time"
+	"database/sql"
+	"fmt"
+	"time"
 
-"github.com/servereye/servereyebot/internal/models"
-_ "github.com/lib/pq"
+	_ "github.com/lib/pq"
+	"github.com/servereye/servereyebot/internal/models"
 )
 
 // PostgresRepository implements database operations
 type PostgresRepository struct {
-db *sql.DB
+	db *sql.DB
 }
 
 // NewPostgresRepository creates a new PostgreSQL repository
 func NewPostgresRepository(databaseURL string) (*PostgresRepository, error) {
-db, err := sql.Open("postgres", databaseURL)
-if err != nil {
-return nil, fmt.Errorf("failed to open database: %w", err)
-}
+	db, err := sql.Open("postgres", databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
 
-// Test connection
-if err := db.Ping(); err != nil {
-return nil, fmt.Errorf("failed to ping database: %w", err)
-}
+	// Test connection
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
 
-// Set connection pool
-db.SetMaxOpenConns(25)
-db.SetMaxIdleConns(5)
-db.SetConnMaxLifetime(5 * time.Minute)
+	// Set connection pool
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(5)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
-return &PostgresRepository{db: db}, nil
+	return &PostgresRepository{db: db}, nil
 }
 
 // Close closes the database connection
 func (r *PostgresRepository) Close() error {
-return r.db.Close()
+	return r.db.Close()
 }
 
 // CreateUser creates a new user
 func (r *PostgresRepository) CreateUser(user *models.User) error {
-query := `
-INSERT INTO users (id, username, first_name, last_name, is_admin)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (id) DO UPDATE SET
+	query := `
+INSERT INTO users (telegram_id, username, first_name, last_name, is_admin, is_active)
+VALUES ($1, $2, $3, $4, $5, $6)
+ON CONFLICT (telegram_id) DO UPDATE SET
 username = EXCLUDED.username,
 first_name = EXCLUDED.first_name,
 last_name = EXCLUDED.last_name,
+is_admin = EXCLUDED.is_admin,
 updated_at = CURRENT_TIMESTAMP
+RETURNING id
 `
 
-_, err := r.db.Exec(query, user.ID, user.Username, user.FirstName, user.LastName, user.IsAdmin)
-return err
+	var returnedID int64
+	err := r.db.QueryRow(query, user.TelegramID, user.Username, user.FirstName, user.LastName, user.IsAdmin, user.IsActive).Scan(&returnedID)
+	if err == nil {
+		user.ID = returnedID
+	}
+	return err
 }
 
 // GetUser retrieves a user by ID
 func (r *PostgresRepository) GetUser(userID int64) (*models.User, error) {
-query := `
-SELECT id, username, first_name, last_name, is_admin, created_at, updated_at
-FROM users WHERE id = $1
+	query := `
+SELECT id, telegram_id, username, first_name, last_name, is_admin, is_active, created_at, updated_at
+FROM users WHERE telegram_id = $1
 `
 
-var user models.User
-err := r.db.QueryRow(query, userID).Scan(
-&user.ID, &user.Username, &user.FirstName, &user.LastName,
-&user.IsAdmin, &user.CreatedAt, &user.UpdatedAt,
-)
+	var user models.User
+	err := r.db.QueryRow(query, userID).Scan(
+		&user.ID, &user.TelegramID, &user.Username, &user.FirstName, &user.LastName,
+		&user.IsAdmin, &user.IsActive, &user.CreatedAt, &user.UpdatedAt,
+	)
 
-if err != nil {
-return nil, err
-}
+	if err != nil {
+		return nil, err
+	}
 
-return &user, nil
+	return &user, nil
 }
 
 // AddServerToUser adds a server to a user's server list
 func (r *PostgresRepository) AddServerToUser(userID int64, serverID, source string) error {
-// First, ensure the server exists
-if err := r.ensureServerExists(serverID); err != nil {
-return err
-}
+	// First, ensure the server exists
+	if err := r.ensureServerExists(serverID); err != nil {
+		return err
+	}
 
-// Then add the relationship
-query := `
+	// Then add the relationship
+	query := `
 INSERT INTO user_servers (user_id, server_id, source)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id, server_id) DO NOTHING
 `
 
-_, err := r.db.Exec(query, userID, serverID, source)
-return err
+	_, err := r.db.Exec(query, userID, serverID, source)
+	return err
 }
 
 // ensureServerExists creates a server if it doesn't exist
 func (r *PostgresRepository) ensureServerExists(serverID string) error {
-query := `
+	query := `
 INSERT INTO servers (id, name, description)
 VALUES ($1, $1, '')
 ON CONFLICT (id) DO NOTHING
 `
 
-_, err := r.db.Exec(query, serverID)
-return err
+	_, err := r.db.Exec(query, serverID)
+	return err
 }
 
 // GetUserServers retrieves all servers for a user
 func (r *PostgresRepository) GetUserServers(userID int64) ([]models.ServerWithDetails, error) {
-query := `
+	query := `
 SELECT s.id, s.name, s.description, s.created_at, s.updated_at,
        us.source, us.created_at as added_at
 FROM servers s
@@ -116,41 +122,41 @@ WHERE us.user_id = $1
 ORDER BY us.created_at DESC
 `
 
-rows, err := r.db.Query(query, userID)
-if err != nil {
-return nil, err
-}
-defer rows.Close()
+	rows, err := r.db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-var servers []models.ServerWithDetails
-for rows.Next() {
-var server models.ServerWithDetails
-err := rows.Scan(
-&server.ID, &server.Name, &server.Description,
-&server.CreatedAt, &server.UpdatedAt,
-&server.Source, &server.AddedAt,
-)
-if err != nil {
-return nil, err
-}
-servers = append(servers, server)
-}
+	var servers []models.ServerWithDetails
+	for rows.Next() {
+		var server models.ServerWithDetails
+		err := rows.Scan(
+			&server.ID, &server.Name, &server.Description,
+			&server.CreatedAt, &server.UpdatedAt,
+			&server.Source, &server.AddedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		servers = append(servers, server)
+	}
 
-return servers, nil
+	return servers, nil
 }
 
 // RemoveServerFromUser removes a server from a user's server list
 func (r *PostgresRepository) RemoveServerFromUser(userID int64, serverID string) error {
-query := `DELETE FROM user_servers WHERE user_id = $1 AND server_id = $2`
-_, err := r.db.Exec(query, userID, serverID)
-return err
+	query := `DELETE FROM user_servers WHERE user_id = $1 AND server_id = $2`
+	_, err := r.db.Exec(query, userID, serverID)
+	return err
 }
 
 // IsServerOwnedByUser checks if a server is owned by a user
 func (r *PostgresRepository) IsServerOwnedByUser(userID int64, serverID string) (bool, error) {
-query := `SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = $1 AND server_id = $2)`
+	query := `SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = $1 AND server_id = $2)`
 
-var exists bool
-err := r.db.QueryRow(query, userID, serverID).Scan(&exists)
-return exists, err
+	var exists bool
+	err := r.db.QueryRow(query, userID, serverID).Scan(&exists)
+	return exists, err
 }

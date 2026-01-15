@@ -6,9 +6,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/servereye/servereyebot/internal/api"
 	"github.com/servereye/servereyebot/internal/config"
 	"github.com/servereye/servereyebot/internal/logger"
+	"github.com/servereye/servereyebot/internal/repository"
 	"github.com/servereye/servereyebot/internal/service"
+	"github.com/servereye/servereyebot/internal/services"
 	"github.com/servereye/servereyebot/internal/storage"
 	"github.com/servereye/servereyebot/internal/telegram"
 	"github.com/servereye/servereyebot/pkg/domain"
@@ -58,8 +61,17 @@ func New(cfg *config.Config, log logger.Logger) (*Bot, error) {
 	userServerRepo := storage.NewUserServerRepositoryAdapter(postgres)
 
 	// Create services
+	postgresRepo, err := repository.NewPostgresRepository(cfg.Database.URL)
+	if err != nil {
+		return nil, errors.NewInternalError("failed to create postgres repository", err)
+	}
+
+	// Create API client
+	apiClient := api.NewClient(cfg.API.BaseURL, &logrusAdapter{logger: log})
+
+	realUserService := services.NewUserService(postgresRepo, apiClient)
 	serverService := service.NewServerService(serverRepo, userRepo, userServerRepo)
-	userService := NewSimpleUserService(cfg)
+	userService := services.NewUserServiceAdapter(realUserService)
 
 	// Create command router
 	commandRouter := NewDefaultCommandRouterNew(log, telegramSvc, userService, serverService)
@@ -179,21 +191,32 @@ func (b *Bot) handleHelpCommand(ctx context.Context, cmd *domain.Command, args [
 }
 
 func (b *Bot) handleServersCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	userID := ctx.Value("user_id").(int64)
+	telegramID := ctx.Value("user_id").(int64)
 	chatID := ctx.Value("chat_id").(int64)
 
-	b.logger.Info("Getting user servers", "user_id", userID, "chat_id", chatID)
+	b.logger.Info("Getting user servers", "telegram_id", telegramID, "chat_id", chatID)
 
-	// Get user servers
-	servers, err := b.serverService.ListUserServers(ctx, userID)
-	if err != nil {
-		b.logger.Error("Failed to get user servers", "error", err, "user_id", userID)
-		return b.telegramSvc.SendMessage(ctx, chatID, "❌ Произошла ошибка при получении списка серверов. Попробуйте позже.")
+	// Get user servers using UserServiceAdapter
+	if adapter, ok := b.userService.(*services.UserServiceAdapter); ok {
+		// Get user from database to get correct user_id
+		user, err := adapter.GetUser(ctx, telegramID)
+		if err != nil {
+			b.logger.Error("Failed to get user", "error", err, "telegram_id", telegramID)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка. Попробуйте позже.")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			b.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Произошла ошибка при получении списка серверов. Попробуйте позже.")
+		}
+
+		// Format and send servers list
+		message := adapter.FormatServersList(servers)
+		return b.telegramSvc.SendMessage(ctx, chatID, message)
 	}
 
-	// Format and send servers list
-	message := b.serverService.FormatServersForMessage(servers)
-	return b.telegramSvc.SendMessage(ctx, chatID, message)
+	return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка сервиса. Попробуйте позже.")
 }
 
 func (b *Bot) handleAddServerCommand(ctx context.Context, cmd *domain.Command, args []string) error {
@@ -203,19 +226,41 @@ func (b *Bot) handleAddServerCommand(ctx context.Context, cmd *domain.Command, a
 	}
 
 	serverID := strings.TrimSpace(args[0])
-	userID := ctx.Value("user_id").(int64)
+	telegramID := ctx.Value("user_id").(int64)
 	chatID := ctx.Value("chat_id").(int64)
 
-	b.logger.Info("Adding server", "server_id", serverID, "user_id", userID, "chat_id", chatID)
+	b.logger.Info("Adding server", "server_id", serverID, "telegram_id", telegramID, "chat_id", chatID)
 
-	// Add server to user
-	if err := b.serverService.AddServerToUser(ctx, userID, serverID, "owner"); err != nil {
-		b.logger.Error("Failed to add server to user", "error", err, "server_id", serverID, "user_id", userID)
-		return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Не удалось добавить сервер `%s`. Попробуйте позже.", serverID))
+	// Add server to user using UserServiceAdapter
+	if adapter, ok := b.userService.(*services.UserServiceAdapter); ok {
+		// Get user from database to get correct user_id
+		user, err := adapter.GetUser(ctx, telegramID)
+		if err != nil {
+			b.logger.Error("Failed to get user", "error", err, "telegram_id", telegramID)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка. Попробуйте позже.")
+		}
+
+		if err := adapter.AddServerToUser(ctx, int64(user.ID), serverID, "TGBot"); err != nil {
+			b.logger.Error("Failed to add server to user", "error", err, "server_id", serverID, "user_id", user.ID)
+
+			// Check error type and provide specific message
+			errorMsg := err.Error()
+			if strings.Contains(errorMsg, "not found") {
+				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Сервер `%s` не найден.", serverID))
+			} else if strings.Contains(errorMsg, "API error") {
+				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Ошибка при проверке сервера `%s`. Попробуйте позже.", serverID))
+			} else if strings.Contains(errorMsg, "Invalid server key") {
+				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Неверный формат ключа сервера `%s`.", serverID))
+			} else {
+				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Не удалось добавить сервер `%s`. Попробуйте позже.", serverID))
+			}
+		}
+
+		successMsg := fmt.Sprintf("✅ Сервер `%s` успешно добавлен в ваш список!\n\nИспользуйте /servers для просмотра всех ваших серверов.", serverID)
+		return b.telegramSvc.SendMessage(ctx, chatID, successMsg)
 	}
 
-	successMsg := fmt.Sprintf("✅ Сервер `%s` успешно добавлен в ваш список!\n\nИспользуйте /servers для просмотра всех ваших серверов.", serverID)
-	return b.telegramSvc.SendMessage(ctx, chatID, successMsg)
+	return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка сервиса. Попробуйте позже.")
 }
 
 // Start starts the bot
@@ -427,41 +472,4 @@ func (l *logrusAdapter) Error(msg string, fields ...interface{}) {
 		}
 	}
 	l.logger.WithFields(fieldMap).Error(msg)
-}
-
-// SimpleUserService implements domain.UserService
-type SimpleUserService struct {
-	config *config.Config
-}
-
-func NewSimpleUserService(cfg *config.Config) *SimpleUserService {
-	return &SimpleUserService{config: cfg}
-}
-
-func (s *SimpleUserService) IsAdmin(userID int64) bool {
-	return s.config.Telegram.AdminUserID == userID
-}
-
-func (s *SimpleUserService) IsAuthorized(userID int64) bool {
-	if s.config.Telegram.AdminUserID == userID {
-		return true
-	}
-
-	for _, allowedID := range s.config.Telegram.AllowedUserIDs {
-		if allowedID == userID {
-			return true
-		}
-	}
-
-	return !s.config.Telegram.PrivateMode
-}
-
-func (s *SimpleUserService) RegisterUser(ctx context.Context, user *domain.User) error {
-	// Simple implementation - in production, store in database
-	return nil
-}
-
-func (s *SimpleUserService) GetUser(ctx context.Context, userID int64) (*domain.User, error) {
-	// Simple implementation - in production, fetch from database
-	return nil, errors.NewNotFoundError("user")
 }
