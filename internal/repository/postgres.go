@@ -126,7 +126,9 @@ ORDER BY us.created_at DESC
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var servers []models.ServerWithDetails
 	for rows.Next() {

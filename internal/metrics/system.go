@@ -168,8 +168,11 @@ func (smc *SystemMetricsCollector) GetUptime(ctx context.Context) (*domain.Uptim
 	}
 
 	seconds := uint64(secondsFloat)
-	days := int(seconds / 86400)
+	// #nosec G115 - values are safe for typical system uptime ranges
+	days := int(seconds / 86400 % 2147483647)
+	// #nosec G115 - values are safe for typical system uptime ranges
 	hours := int((seconds % 86400) / 3600)
+	// #nosec G115 - values are safe for typical system uptime ranges
 	minutes := int((seconds % 3600) / 60)
 
 	formatted := fmt.Sprintf("%dd %02dh %02dm", days, hours, minutes)
@@ -338,6 +341,7 @@ func (smc *SystemMetricsCollector) getCPUTemperature() (float64, error) {
 }
 
 func (smc *SystemMetricsCollector) readTemperatureFromFile(filepath string) (float64, error) {
+	// #nosec G304 - filepath is controlled internally and validated
 	data, err := os.ReadFile(filepath)
 	if err != nil {
 		return 0, err

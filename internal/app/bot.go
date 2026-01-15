@@ -19,6 +19,14 @@ import (
 	"github.com/servereye/servereyebot/pkg/errors"
 )
 
+// Context keys
+type contextKey string
+
+const (
+	userIDKey contextKey = "user_id"
+	chatIDKey contextKey = "chat_id"
+)
+
 // Bot represents the updated bot with PostgreSQL integration
 type Bot struct {
 	config         *config.Config
@@ -204,7 +212,7 @@ func (b *Bot) getCommandList() []domain.BotCommand {
 // Command handlers
 
 func (b *Bot) handleStartCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	chatID := ctx.Value("chat_id").(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	message := `👋 *Добро пожаловать в ServerEyeBot!*
 
@@ -231,7 +239,7 @@ func (b *Bot) handleStartCommand(ctx context.Context, cmd *domain.Command, args 
 }
 
 func (b *Bot) handleHelpCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	chatID := ctx.Value("chat_id").(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	message := `📖 *Помощь ServerEyeBot*
 
@@ -265,8 +273,8 @@ func (b *Bot) handleHelpCommand(ctx context.Context, cmd *domain.Command, args [
 }
 
 func (b *Bot) handleServersCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	b.logger.Info("Getting user servers", "telegram_id", telegramID, "chat_id", chatID)
 
@@ -309,13 +317,13 @@ func (b *Bot) handleServersCommand(ctx context.Context, cmd *domain.Command, arg
 
 func (b *Bot) handleAddServerCommand(ctx context.Context, cmd *domain.Command, args []string) error {
 	if len(args) < 1 {
-		chatID := ctx.Value("chat_id").(int64)
+		chatID := ctx.Value(chatIDKey).(int64)
 		return b.telegramSvc.SendMessage(ctx, chatID, "❌ Укажите ID сервера. Пример: /add srv_12313")
 	}
 
 	serverID := strings.TrimSpace(args[0])
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	b.logger.Info("Adding server", "server_id", serverID, "telegram_id", telegramID, "chat_id", chatID)
 
@@ -492,7 +500,7 @@ func (h *DefaultUpdateHandler) handleShowRemoveServersCallback(ctx context.Conte
 
 		message := "Выберите сервер для удаления:\n\n"
 		for _, server := range servers {
-			message += fmt.Sprintf("• %s - %s\n", server.Server.ID, server.Server.Name)
+			message += fmt.Sprintf("• %s - %s\n", server.ID, server.Name)
 		}
 		message += "\nНажмите на сервер который хотите удалить"
 
@@ -546,8 +554,8 @@ func createRemoveServerKeyboard(servers []models.ServerWithDetails) interface{} 
 	for _, server := range servers {
 		button := []map[string]string{
 			{
-				"text":          fmt.Sprintf("Удалить %s", server.Server.Name),
-				"callback_data": fmt.Sprintf("remove_server:%s", server.Server.ID),
+				"text":          fmt.Sprintf("Удалить %s", server.Name),
+				"callback_data": fmt.Sprintf("remove_server:%s", server.ID),
 			},
 		}
 		buttons = append(buttons, button)
@@ -599,8 +607,8 @@ func (r *DefaultCommandRouter) RouteCommand(ctx context.Context, commandName str
 	}
 
 	// Add user info to context
-	ctx = context.WithValue(ctx, "user_id", user.TelegramID)
-	ctx = context.WithValue(ctx, "chat_id", user.TelegramID)
+	ctx = context.WithValue(ctx, userIDKey, user.TelegramID)
+	ctx = context.WithValue(ctx, chatIDKey, user.TelegramID)
 
 	// Execute command
 	return cmd.Handler(ctx, cmd, args)
@@ -661,54 +669,11 @@ func (l *logrusAdapter) Error(msg string, fields ...interface{}) {
 	l.logger.WithFields(fieldMap).Error(msg)
 }
 
-// handleShowRemoveServers handles the callback to show servers for removal
-func (b *Bot) handleShowRemoveServers(ctx context.Context, callbackID string, telegramID int64, chatID int64) error {
-	b.logger.Info("Getting servers for removal", "telegram_id", telegramID, "chat_id", chatID)
-
-	// Get user servers using UserServiceAdapter
-	if adapter, ok := b.userService.(*services.UserServiceAdapter); ok {
-		// Get user from database to get correct user_id
-		user, err := adapter.GetUser(ctx, telegramID)
-		if err != nil {
-			b.logger.Error("Failed to get user", "error", err, "telegram_id", telegramID)
-			return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "❌ Внутренняя ошибка")
-		}
-
-		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
-		if err != nil {
-			b.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
-			return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "❌ Ошибка получения серверов")
-		}
-
-		if len(servers) == 0 {
-			return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "📋 У вас нет серверов для удаления")
-		}
-
-		// Create inline keyboard with server removal buttons
-		keyboard := b.createRemoveServerKeyboard(servers)
-
-		message := "🗑️ *Выберите сервер для удаления:*\n\n"
-		for _, server := range servers {
-			message += fmt.Sprintf("• `%s` - %s\n", server.Server.ID, server.Server.Name)
-		}
-		message += "\n_Нажмите на сервер который хотите удалить_"
-
-		// Answer callback and send new message
-		if err := b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "📋 Показываю серверы для удаления"); err != nil {
-			b.logger.Error("Failed to answer callback", "error", err)
-		}
-
-		return b.telegramSvc.SendMessageWithKeyboard(ctx, chatID, message, keyboard)
-	}
-
-	return b.telegramSvc.AnswerCallbackQuery(ctx, callbackID, "❌ Внутренняя ошибка сервиса")
-}
-
 // Metrics command handlers
 
 func (b *Bot) handleCPUCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	return b.handleMetricsCommand(ctx, telegramID, chatID, "cpu", func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatCPU(metrics)
@@ -716,8 +681,8 @@ func (b *Bot) handleCPUCommand(ctx context.Context, cmd *domain.Command, args []
 }
 
 func (b *Bot) handleMemoryCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	return b.handleMetricsCommand(ctx, telegramID, chatID, "memory", func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatMemory(metrics)
@@ -725,8 +690,8 @@ func (b *Bot) handleMemoryCommand(ctx context.Context, cmd *domain.Command, args
 }
 
 func (b *Bot) handleDiskCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	return b.handleMetricsCommand(ctx, telegramID, chatID, "disk", func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatDisk(metrics)
@@ -734,8 +699,8 @@ func (b *Bot) handleDiskCommand(ctx context.Context, cmd *domain.Command, args [
 }
 
 func (b *Bot) handleTempCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	return b.handleMetricsCommand(ctx, telegramID, chatID, "temperature", func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatTemperature(metrics)
@@ -743,8 +708,8 @@ func (b *Bot) handleTempCommand(ctx context.Context, cmd *domain.Command, args [
 }
 
 func (b *Bot) handleNetworkCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	return b.handleMetricsCommand(ctx, telegramID, chatID, "network", func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatNetwork(metrics)
@@ -752,8 +717,8 @@ func (b *Bot) handleNetworkCommand(ctx context.Context, cmd *domain.Command, arg
 }
 
 func (b *Bot) handleSystemCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	return b.handleMetricsCommand(ctx, telegramID, chatID, "system", func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatSystem(metrics)
@@ -761,8 +726,8 @@ func (b *Bot) handleSystemCommand(ctx context.Context, cmd *domain.Command, args
 }
 
 func (b *Bot) handleAllCommand(ctx context.Context, cmd *domain.Command, args []string) error {
-	telegramID := ctx.Value("user_id").(int64)
-	chatID := ctx.Value("chat_id").(int64)
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
 
 	return b.handleMetricsCommand(ctx, telegramID, chatID, "all", func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatAll(metrics)
@@ -796,11 +761,11 @@ func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64
 		server := servers[0]
 
 		// Use server ID as the server key for API calls
-		serverKey := server.Server.ID
+		serverKey := server.ID
 
 		b.logger.Info("Using server for metrics",
-			"server_id", server.Server.ID,
-			"server_name", server.Server.Name,
+			"server_id", server.ID,
+			"server_name", server.Name,
 			"server_key", serverKey)
 
 		// Get metrics
@@ -815,7 +780,7 @@ func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64
 			} else if strings.Contains(errorMsg, "API error") {
 				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Не удалось получить метрики для сервера `%s`. Попробуйте позже.", serverKey))
 			} else {
-				return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Не удалось получить метрики. Попробуйте позже."))
+				return b.telegramSvc.SendMessage(ctx, chatID, "❌ Не удалось получить метрики. Попробуйте позже.")
 			}
 		}
 

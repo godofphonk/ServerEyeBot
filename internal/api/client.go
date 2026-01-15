@@ -73,7 +73,9 @@ func (c *Client) GetServerSources(ctx context.Context, serverKey string) (*GetSe
 		c.logger.Error("Failed to get server sources", "error", err, "server_key", serverKey)
 		return nil, errors.NewExternalError("ServerEye API", "get server sources", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
@@ -125,7 +127,9 @@ func (c *Client) AddServerSourceByRequest(ctx context.Context, serverKey string)
 		c.logger.Error("Failed to add server source", "error", err, "server_key", serverKey)
 		return nil, errors.NewExternalError("ServerEye API", "add server source", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
@@ -184,7 +188,9 @@ func (c *Client) GetServerMetrics(ctx context.Context, serverKey string) (*domai
 		c.logger.Error("Failed to get server metrics", "error", err, "server_key", serverKey)
 		return nil, errors.NewExternalError("ServerEye API", "get server metrics", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)

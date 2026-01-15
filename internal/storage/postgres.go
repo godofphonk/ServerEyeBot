@@ -238,7 +238,9 @@ func (p *PostgreSQL) ListServersByUserID(ctx context.Context, userID int) ([]*do
 	if err != nil {
 		return nil, fmt.Errorf("failed to list servers: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var servers []*domain.Server
 	for rows.Next() {
@@ -333,7 +335,9 @@ func (p *PostgreSQL) ListUsersByServerID(ctx context.Context, serverID int) ([]*
 	if err != nil {
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var users []*domain.User
 	for rows.Next() {

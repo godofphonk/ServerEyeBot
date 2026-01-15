@@ -63,7 +63,7 @@ func New(config LoggerConfig) (Logger, error) {
 
 		// Create directory if it doesn't exist
 		dir := filepath.Dir(config.Filename)
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0750); err != nil {
 			return nil, err
 		}
 
