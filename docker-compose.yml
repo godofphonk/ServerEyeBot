@@ -9,12 +9,10 @@ services:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - ENV=${ENV:-development}
-      - API_BASE_URL=http://host.docker.internal:8080
+      - API_BASE_URL=https://api.servereye.dev
       - PORT=${PORT:-8091}
       - ADMIN_USER_ID=${ADMIN_USER_ID}
       - DATABASE_URL=postgres://servereyebot:servereye123@postgres:5432/servereyebot?sslmode=disable
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     ports:
       - "8092:8091"
     volumes:
