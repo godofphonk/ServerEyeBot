@@ -175,7 +175,7 @@ jobs:
                 - API_BASE_URL=http://host.docker.internal:8080
                 - PORT=${{ vars.BOT_PORT || '8091' }}
                 - ADMIN_USER_ID=${{ secrets.ADMIN_USER_ID }}
-                - DATABASE_URL=postgres://servereyebot:${{ secrets.POSTGRES_PASSWORD }}@postgres:5432/servereyebot?sslmode=disable
+                - DATABASE_URL=postgres://servereyebot:${{ secrets.POSTGRES_PASSWORD || 'servereye123' }}@postgres:5432/servereyebot?sslmode=disable
               extra_hosts:
                 - "host.docker.internal:host-gateway"
               ports:
@@ -200,7 +200,7 @@ jobs:
               environment:
                 - POSTGRES_DB=servereyebot
                 - POSTGRES_USER=servereyebot
-                - POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+                - POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD || 'servereye123' }}
               ports:
                 - "${{ vars.POSTGRES_PORT || '5434' }}:5432"
               volumes:
