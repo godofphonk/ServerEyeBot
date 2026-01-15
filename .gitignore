@@ -42,6 +42,9 @@ logs/
 .env
 .env.local
 .env.*.local
+.env.dev
+.env.prod
+.env.staging
 
 # Docker
 .dockerignore
@@ -65,3 +68,48 @@ temp/
 # Configuration files (if they contain secrets)
 config.local.yaml
 secrets.yaml
+
+# Security and certificates
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+ssl/
+certs/
+keys/
+
+# Secret management
+doppler/
+.envrc
+.env.*.secret
+*.secret
+.secrets
+
+# Cloud provider credentials
+.aws/
+.azure/
+.gcp/
+kubeconfig*
+
+# Database backups and dumps
+*.sql.gz
+*.dump
+*.backup
+db_backups/
+
+# Production configurations
+docker-compose.prod.yml
+docker-compose.production.yml
+docker-compose.override.yml
+
+# Monitoring and logging data
+prometheus_data/
+grafana_data/
+elasticsearch_data/
+kibana_data/
+
+# Temporary deployment files
+*.tmp.*
+deploy_temp/
+deployment_keys/
