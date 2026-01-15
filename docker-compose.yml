@@ -12,7 +12,7 @@ services:
       - API_BASE_URL=http://host.docker.internal:8080
       - PORT=${PORT:-8091}
       - ADMIN_USER_ID=${ADMIN_USER_ID}
-      - DATABASE_URL=postgres://servereyebot:servereye123@postgres:5432/servereye?sslmode=disable
+      - DATABASE_URL=postgres://servereyebot:servereye123@postgres:5432/servereyebot?sslmode=disable
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
