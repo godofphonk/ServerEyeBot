@@ -31,14 +31,14 @@ type UserServer struct {
 	ID        int64     `json:"id" db:"id"`
 	UserID    int64     `json:"user_id" db:"user_id"`
 	ServerID  string    `json:"server_id" db:"server_id"`
-	Source    string    `json:"source" db:"source"`
+	Role      string    `json:"role" db:"role"`
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 // ServerWithDetails represents server with user relationship info
 type ServerWithDetails struct {
 	Server
-	Source    string    `json:"source"`
+	Role      string    `json:"role"`
 	AddedAt   time.Time `json:"added_at"`
 	ServerKey string    `json:"server_key"` // API key for metrics
 }

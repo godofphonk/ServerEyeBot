@@ -90,21 +90,21 @@ func (r *PostgresRepository) AddServerToUser(userID int64, serverID, source stri
 
 	// Then add the relationship
 	query := `
-INSERT INTO user_servers (user_id, server_id, source)
+INSERT INTO user_servers (user_id, server_id, role)
 VALUES ($1, $2, $3)
 ON CONFLICT (user_id, server_id) DO NOTHING
 `
 
-	_, err := r.db.Exec(query, userID, serverID, source)
+	_, err := r.db.Exec(query, userID, serverID, "viewer")
 	return err
 }
 
 // ensureServerExists creates a server if it doesn't exist
 func (r *PostgresRepository) ensureServerExists(serverID string) error {
 	query := `
-INSERT INTO servers (id, name, description)
+INSERT INTO servers (server_id, name, description)
 VALUES ($1, $1, '')
-ON CONFLICT (id) DO NOTHING
+ON CONFLICT (server_id) DO NOTHING
 `
 
 	_, err := r.db.Exec(query, serverID)
@@ -114,12 +114,12 @@ ON CONFLICT (id) DO NOTHING
 // GetUserServers retrieves all servers for a user
 func (r *PostgresRepository) GetUserServers(userID int64) ([]models.ServerWithDetails, error) {
 	query := `
-SELECT s.id, s.name, s.description, s.created_at, s.updated_at,
-       us.source, us.created_at as added_at
+SELECT s.server_id as id, s.name, s.description, s.created_at, s.updated_at,
+       us.role as source, us.added_at
 FROM servers s
-INNER JOIN user_servers us ON s.id = us.server_id
+INNER JOIN user_servers us ON s.server_id = us.server_id
 WHERE us.user_id = $1
-ORDER BY us.created_at DESC
+ORDER BY us.added_at DESC
 `
 
 	rows, err := r.db.Query(query, userID)
@@ -136,7 +136,7 @@ ORDER BY us.created_at DESC
 		err := rows.Scan(
 			&server.ID, &server.Name, &server.Description,
 			&server.CreatedAt, &server.UpdatedAt,
-			&server.Source, &server.AddedAt,
+			&server.Role, &server.AddedAt,
 		)
 		if err != nil {
 			return nil, err
