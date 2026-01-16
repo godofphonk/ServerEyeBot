@@ -115,7 +115,7 @@ ON CONFLICT (server_id) DO NOTHING
 func (r *PostgresRepository) GetUserServers(userID int64) ([]models.ServerWithDetails, error) {
 	query := `
 SELECT s.server_id as id, s.name, s.description, s.created_at, s.updated_at,
-       us.role as source, us.added_at
+       s.server_id as server_key, us.role as source, us.added_at
 FROM servers s
 INNER JOIN user_servers us ON s.server_id = us.server_id
 WHERE us.user_id = $1
@@ -136,7 +136,7 @@ ORDER BY us.added_at DESC
 		err := rows.Scan(
 			&server.ID, &server.Name, &server.Description,
 			&server.CreatedAt, &server.UpdatedAt,
-			&server.Role, &server.AddedAt,
+			&server.ServerKey, &server.Role, &server.AddedAt,
 		)
 		if err != nil {
 			return nil, err
