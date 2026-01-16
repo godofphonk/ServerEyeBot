@@ -90,7 +90,7 @@ func New(cfg *config.Config, log logger.Logger) (*Bot, error) {
 	commandRouter := NewDefaultCommandRouterNew(log, telegramSvc, userService, serverService, metricsService)
 
 	// Create update handler
-	updateHandler := NewDefaultUpdateHandlerNew(log, telegramSvc, userService, commandRouter)
+	updateHandler := NewDefaultUpdateHandlerNew(log, telegramSvc, userService, commandRouter, serverService, metricsService)
 
 	bot := &Bot{
 		config:         cfg,
@@ -385,18 +385,22 @@ func (b *Bot) Stop() {
 
 // DefaultUpdateHandler implements UpdateHandler
 type DefaultUpdateHandler struct {
-	logger        logger.Logger
-	telegramSvc   domain.TelegramService
-	userService   domain.UserService
-	commandRouter CommandRouter
+	logger         logger.Logger
+	telegramSvc    domain.TelegramService
+	userService    domain.UserService
+	commandRouter  CommandRouter
+	serverService  *service.ServerService
+	metricsService *services.MetricsServiceImpl
 }
 
-func NewDefaultUpdateHandlerNew(log logger.Logger, telegramSvc domain.TelegramService, userService domain.UserService, commandRouter CommandRouter) *DefaultUpdateHandler {
+func NewDefaultUpdateHandlerNew(log logger.Logger, telegramSvc domain.TelegramService, userService domain.UserService, commandRouter CommandRouter, serverService *service.ServerService, metricsService *services.MetricsServiceImpl) *DefaultUpdateHandler {
 	return &DefaultUpdateHandler{
-		logger:        log,
-		telegramSvc:   telegramSvc,
-		userService:   userService,
-		commandRouter: commandRouter,
+		logger:         log,
+		telegramSvc:    telegramSvc,
+		userService:    userService,
+		commandRouter:  commandRouter,
+		serverService:  serverService,
+		metricsService: metricsService,
 	}
 }
 
@@ -475,6 +479,12 @@ func (h *DefaultUpdateHandler) handleCallbackData(ctx context.Context, callback 
 		if len(callback.Data) > 14 && callback.Data[:14] == "remove_server:" {
 			return h.handleRemoveServerCallback(ctx, callback)
 		}
+
+		// Handle metrics callbacks
+		if len(callback.Data) > 7 && callback.Data[:7] == "metric:" {
+			return h.handleMetricCallback(ctx, callback)
+		}
+
 		return h.telegramSvc.SendMessage(ctx, callback.Message.Chat.ID, "Unknown callback")
 	}
 }
@@ -547,6 +557,92 @@ func (h *DefaultUpdateHandler) handleRemoveServerCallback(ctx context.Context, c
 		// Update original message to show server was removed
 		newMessage := fmt.Sprintf("Сервер %s успешно удален из вашего списка.", serverID)
 		return h.telegramSvc.EditMessage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, newMessage, nil)
+	}
+
+	return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка сервиса")
+}
+
+// handleMetricCallback handles metric selection callbacks
+func (h *DefaultUpdateHandler) handleMetricCallback(ctx context.Context, callback *telegram.CallbackQuery) error {
+	// Parse callback data: metric:metric_type:server_id
+	parts := strings.Split(callback.Data, ":")
+	if len(parts) != 3 {
+		return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Неверный формат данных")
+	}
+
+	metricType := parts[1]
+	serverID := parts[2]
+
+	// Get user servers
+	if adapter, ok := h.userService.(*services.UserServiceAdapter); ok {
+		user, err := adapter.GetUser(ctx, callback.From.ID)
+		if err != nil {
+			h.logger.Error("Failed to get user", "error", err, "telegram_id", callback.From.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			h.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Ошибка получения серверов")
+		}
+
+		// Find the requested server
+		var selectedServer *models.ServerWithDetails
+		for _, server := range servers {
+			if server.ID == serverID {
+				selectedServer = &server
+				break
+			}
+		}
+
+		if selectedServer == nil {
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Сервер не найден")
+		}
+
+		// Get metrics for the selected server
+		serverKey := selectedServer.ServerKey
+		metrics, err := h.metricsService.GetServerMetrics(serverKey)
+		if err != nil {
+			h.logger.Error("Failed to get server metrics", "error", err, "server_key", serverKey)
+
+			errorMsg := "❌ Не удалось получить метрики"
+			if strings.Contains(err.Error(), "not found") {
+				errorMsg = fmt.Sprintf("❌ Сервер `%s` не найден", serverKey)
+			} else if strings.Contains(err.Error(), "API error") {
+				errorMsg = fmt.Sprintf("❌ Не удалось получить метрики для сервера `%s`", serverKey)
+			}
+
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, errorMsg)
+		}
+
+		// Format metrics based on type
+		var formattedMetrics string
+		switch metricType {
+		case "cpu":
+			formattedMetrics = h.metricsService.FormatCPU(&metrics.Metrics)
+		case "memory":
+			formattedMetrics = h.metricsService.FormatMemory(&metrics.Metrics)
+		case "disk":
+			formattedMetrics = h.metricsService.FormatDisk(&metrics.Metrics)
+		case "temperature":
+			formattedMetrics = h.metricsService.FormatTemperature(&metrics.Metrics)
+		case "network":
+			formattedMetrics = h.metricsService.FormatNetwork(&metrics.Metrics)
+		case "system":
+			formattedMetrics = h.metricsService.FormatSystem(&metrics.Metrics)
+		case "all":
+			formattedMetrics = h.metricsService.FormatAll(&metrics.Metrics)
+		default:
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Неизвестный тип метрики")
+		}
+
+		// Answer callback and send metrics
+		if err := h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, fmt.Sprintf("Метрики %s для %s", metricType, selectedServer.Name)); err != nil {
+			h.logger.Error("Failed to answer callback", "error", err)
+		}
+
+		return h.telegramSvc.SendMessage(ctx, callback.Message.Chat.ID, formattedMetrics)
 	}
 
 	return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка сервиса")
@@ -740,7 +836,7 @@ func (b *Bot) handleAllCommand(ctx context.Context, cmd *domain.Command, args []
 }
 
 // selectServer handles server selection for metrics commands
-func (b *Bot) selectServer(ctx context.Context, chatID int64, servers []models.ServerWithDetails, args []string) (*models.ServerWithDetails, error) {
+func (b *Bot) selectServer(ctx context.Context, chatID int64, metricType string, servers []models.ServerWithDetails, args []string) (*models.ServerWithDetails, error) {
 	// If only one server, use it
 	if len(servers) == 1 {
 		return &servers[0], nil
@@ -757,19 +853,22 @@ func (b *Bot) selectServer(ctx context.Context, chatID int64, servers []models.S
 		return nil, b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Сервер `%s` не найден в вашем списке.", serverID))
 	}
 
-	// Multiple servers and no specific server requested - show selection menu
-	var serverList strings.Builder
-	serverList.WriteString("🔍 *Выберите сервер:*\n\n")
+	// Multiple servers and no specific server requested - show selection buttons
+	var keyboard [][]map[string]string
 
-	for i, server := range servers {
-		serverList.WriteString(fmt.Sprintf("%d. `%s` (%s)\n", i+1, server.ID, server.Name))
+	for _, server := range servers {
+		button := []map[string]string{
+			{
+				"text":          fmt.Sprintf("🖥️ %s", server.Name),
+				"callback_data": fmt.Sprintf("metric:%s:%s", metricType, server.ID),
+			},
+		}
+		keyboard = append(keyboard, button)
 	}
 
-	serverList.WriteString("\n💡 *Использование:*\n")
-	serverList.WriteString("• `/cpu server_id` - метрики для конкретного сервера\n")
-	serverList.WriteString("• `/temp server_name` - метрики по имени сервера")
+	message := fmt.Sprintf("📊 *Выберите сервер для метрики %s:*", metricType)
 
-	return nil, b.telegramSvc.SendMessage(ctx, chatID, serverList.String())
+	return nil, b.telegramSvc.SendMessageWithKeyboard(ctx, chatID, message, keyboard)
 }
 
 // handleMetricsCommand is a generic handler for metrics commands
@@ -795,7 +894,7 @@ func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64
 		}
 
 		// Handle server selection
-		server, err := b.selectServer(ctx, chatID, servers, args)
+		server, err := b.selectServer(ctx, chatID, metricType, servers, args)
 		if err != nil {
 			return err
 		}
