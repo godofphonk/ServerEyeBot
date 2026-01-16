@@ -141,9 +141,9 @@ jobs:
           
           echo "=== Deploying image: $IMAGE_NAME:$UNIQUE_TAG ==="
           
-          # Stop everything completely
-          echo "=== Stopping all services ==="
-          docker-compose down -v --remove-orphans || true
+          # Stop services gracefully (preserve data)
+          echo "=== Stopping services ==="
+          docker-compose down --remove-orphans || true
           docker stop ServerEyeBot-TelegramBot || true
           docker rm ServerEyeBot-TelegramBot || true
           docker stop ServerEyeBot-PostgreSQL || true
@@ -151,15 +151,26 @@ jobs:
           docker stop servereyebot || true
           docker rm servereyebot || true
           
-          # Clean up Docker completely
-          echo "=== Cleaning up Docker ==="
+          # Clean up Docker images only (preserve volumes)
+          echo "=== Cleaning up Docker images ==="
           docker system prune -a -f
-          docker volume prune -f
           
           # Pull fresh image
           echo "=== Pulling new image ==="
           docker pull $IMAGE_NAME:production
           docker pull $IMAGE_NAME:latest
+          
+          # Create external volumes for data persistence
+          echo "=== Creating external volumes ==="
+          docker volume create servereyebot_postgres_data || true
+          
+          # Create backup before deployment
+          echo "=== Creating backup before deployment ==="
+          mkdir -p /opt/servereyebot/backups
+          if docker volume inspect servereyebot_postgres_data >/dev/null 2>&1; then
+            docker run --rm -v servereyebot_postgres_data:/data -v /opt/servereyebot/backups:/backup alpine tar czf /backup/postgres_backup_$(date +%Y%m%d_%H%M%S).tar.gz -C /data .
+            echo "✅ PostgreSQL backup created"
+          fi
           
           # Create docker-compose.yml
           cat > docker-compose.yml << 'COMPOSE_EOF'
@@ -202,7 +213,7 @@ jobs:
               ports:
                 - "${{ vars.POSTGRES_PORT || '5434' }}:5432"
               volumes:
-                - postgres_data:/var/lib/postgresql/data
+                - servereyebot_postgres_data:/var/lib/postgresql/data
                 - ./migrations:/docker-entrypoint-initdb.d
               networks:
                 - servereyebot-network
@@ -213,7 +224,8 @@ jobs:
                 retries: 5
 
           volumes:
-            postgres_data:
+            servereyebot_postgres_data:
+              external: true
 
           networks:
             servereyebot-network:
