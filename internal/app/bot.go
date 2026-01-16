@@ -225,13 +225,13 @@ func (b *Bot) handleStartCommand(ctx context.Context, cmd *domain.Command, args 
 /add <server_id> - Добавить сервер
 
 *Команды метрик:*
-/cpu - Загрузка процессора
-/memory - Использование памяти
-/disk - Дисковое пространство
-/temp - Температура системы
-/network - Сетевая активность
-/system - Системная информация
-/all - Все метрики (кратко)
+/cpu [server_id] - Загрузка процессора
+/memory [server_id] - Использование памяти
+/disk [server_id] - Дисковое пространство
+/temp [server_id] - Температура системы
+/network [server_id] - Сетевая активность
+/system [server_id] - Системная информация
+/all [server_id] - Все метрики (кратко)
 
 Начните с команды /servers чтобы увидеть ваши серверы!`
 
@@ -250,13 +250,13 @@ func (b *Bot) handleHelpCommand(ctx context.Context, cmd *domain.Command, args [
 • /add <server_id> - Добавить сервер (например: /add srv_12313)
 
 *Команды метрик:*
-• /cpu - Загрузка процессора
-• /memory - Использование памяти
-• /disk - Дисковое пространство
-• /temp - Температура системы
-• /network - Сетевая активность
-• /system - Системная информация
-• /all - Все метрики (кратко)
+• /cpu [server_id] - Загрузка процессора
+• /memory [server_id] - Использование памяти
+• /disk [server_id] - Дисковое пространство
+• /temp [server_id] - Температура системы
+• /network [server_id] - Сетевая активность
+• /system [server_id] - Системная информация
+• /all [server_id] - Все метрики (кратко)
 
 *Как добавить сервер:*
 1. Используйте команду /add srv_12313
@@ -266,6 +266,11 @@ func (b *Bot) handleHelpCommand(ctx context.Context, cmd *domain.Command, args [
 
 *Управление серверами:*
 Один пользователь может иметь много серверов, и один сервер может быть доступен многим пользователям.
+
+*Выбор сервера для метрик:*
+• Если у вас один сервер - метрики показываются автоматически
+• Если несколько серверов - используйте /cpu server_id для конкретного сервера
+• При вызове без параметра - увидите список доступных серверов
 
 Нужна помощь? Свяжитесь с администратором.`
 
@@ -675,7 +680,7 @@ func (b *Bot) handleCPUCommand(ctx context.Context, cmd *domain.Command, args []
 	telegramID := ctx.Value(userIDKey).(int64)
 	chatID := ctx.Value(chatIDKey).(int64)
 
-	return b.handleMetricsCommand(ctx, telegramID, chatID, "cpu", func(metrics *domain.ServerMetrics) string {
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "cpu", args, func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatCPU(metrics)
 	})
 }
@@ -684,7 +689,7 @@ func (b *Bot) handleMemoryCommand(ctx context.Context, cmd *domain.Command, args
 	telegramID := ctx.Value(userIDKey).(int64)
 	chatID := ctx.Value(chatIDKey).(int64)
 
-	return b.handleMetricsCommand(ctx, telegramID, chatID, "memory", func(metrics *domain.ServerMetrics) string {
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "memory", args, func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatMemory(metrics)
 	})
 }
@@ -693,7 +698,7 @@ func (b *Bot) handleDiskCommand(ctx context.Context, cmd *domain.Command, args [
 	telegramID := ctx.Value(userIDKey).(int64)
 	chatID := ctx.Value(chatIDKey).(int64)
 
-	return b.handleMetricsCommand(ctx, telegramID, chatID, "disk", func(metrics *domain.ServerMetrics) string {
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "disk", args, func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatDisk(metrics)
 	})
 }
@@ -702,7 +707,7 @@ func (b *Bot) handleTempCommand(ctx context.Context, cmd *domain.Command, args [
 	telegramID := ctx.Value(userIDKey).(int64)
 	chatID := ctx.Value(chatIDKey).(int64)
 
-	return b.handleMetricsCommand(ctx, telegramID, chatID, "temperature", func(metrics *domain.ServerMetrics) string {
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "temperature", args, func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatTemperature(metrics)
 	})
 }
@@ -711,7 +716,7 @@ func (b *Bot) handleNetworkCommand(ctx context.Context, cmd *domain.Command, arg
 	telegramID := ctx.Value(userIDKey).(int64)
 	chatID := ctx.Value(chatIDKey).(int64)
 
-	return b.handleMetricsCommand(ctx, telegramID, chatID, "network", func(metrics *domain.ServerMetrics) string {
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "network", args, func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatNetwork(metrics)
 	})
 }
@@ -720,7 +725,7 @@ func (b *Bot) handleSystemCommand(ctx context.Context, cmd *domain.Command, args
 	telegramID := ctx.Value(userIDKey).(int64)
 	chatID := ctx.Value(chatIDKey).(int64)
 
-	return b.handleMetricsCommand(ctx, telegramID, chatID, "system", func(metrics *domain.ServerMetrics) string {
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "system", args, func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatSystem(metrics)
 	})
 }
@@ -729,13 +734,46 @@ func (b *Bot) handleAllCommand(ctx context.Context, cmd *domain.Command, args []
 	telegramID := ctx.Value(userIDKey).(int64)
 	chatID := ctx.Value(chatIDKey).(int64)
 
-	return b.handleMetricsCommand(ctx, telegramID, chatID, "all", func(metrics *domain.ServerMetrics) string {
+	return b.handleMetricsCommand(ctx, telegramID, chatID, "all", args, func(metrics *domain.ServerMetrics) string {
 		return b.metricsService.FormatAll(metrics)
 	})
 }
 
+// selectServer handles server selection for metrics commands
+func (b *Bot) selectServer(ctx context.Context, chatID int64, servers []models.ServerWithDetails, args []string) (*models.ServerWithDetails, error) {
+	// If only one server, use it
+	if len(servers) == 1 {
+		return &servers[0], nil
+	}
+
+	// If server ID provided in arguments, try to find it
+	if len(args) > 0 {
+		serverID := args[0]
+		for _, server := range servers {
+			if server.ID == serverID || server.Name == serverID {
+				return &server, nil
+			}
+		}
+		return nil, b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Сервер `%s` не найден в вашем списке.", serverID))
+	}
+
+	// Multiple servers and no specific server requested - show selection menu
+	var serverList strings.Builder
+	serverList.WriteString("🔍 *Выберите сервер:*\n\n")
+
+	for i, server := range servers {
+		serverList.WriteString(fmt.Sprintf("%d. `%s` (%s)\n", i+1, server.ID, server.Name))
+	}
+
+	serverList.WriteString("\n💡 *Использование:*\n")
+	serverList.WriteString("• `/cpu server_id` - метрики для конкретного сервера\n")
+	serverList.WriteString("• `/temp server_name` - метрики по имени сервера")
+
+	return nil, b.telegramSvc.SendMessage(ctx, chatID, serverList.String())
+}
+
 // handleMetricsCommand is a generic handler for metrics commands
-func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64, metricType string, formatter func(*domain.ServerMetrics) string) error {
+func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64, metricType string, args []string, formatter func(*domain.ServerMetrics) string) error {
 	b.logger.Info("Getting metrics", "type", metricType, "telegram_id", telegramID, "chat_id", chatID)
 
 	// Get user servers
@@ -756,12 +794,17 @@ func (b *Bot) handleMetricsCommand(ctx context.Context, telegramID, chatID int64
 			return b.telegramSvc.SendMessage(ctx, chatID, "❌ У вас нет добавленных серверов. Используйте /add <server_id> для добавления сервера.")
 		}
 
-		// For now, handle single server case
-		// TODO: Implement server selection for multiple servers
-		server := servers[0]
+		// Handle server selection
+		server, err := b.selectServer(ctx, chatID, servers, args)
+		if err != nil {
+			return err
+		}
+		if server == nil {
+			return nil // Server selection message sent
+		}
 
-		// Use server ID as the server key for API calls
-		serverKey := server.ID
+		// Use server key for API calls
+		serverKey := server.ServerKey
 
 		b.logger.Info("Using server for metrics",
 			"server_id", server.ID,
