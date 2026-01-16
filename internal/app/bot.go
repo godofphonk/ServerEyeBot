@@ -521,7 +521,7 @@ func (h *DefaultUpdateHandler) handleShowRemoveServersCallback(ctx context.Conte
 
 		message := "Выберите сервер для удаления:\n\n"
 		for _, server := range servers {
-			message += fmt.Sprintf("• %s - %s\n", server.ID, server.Name)
+			message += fmt.Sprintf("• %s(%s)\n", server.Name, server.ID)
 		}
 		message += "\nНажмите на сервер который хотите удалить"
 
@@ -548,6 +548,26 @@ func (h *DefaultUpdateHandler) handleRemoveServerCallback(ctx context.Context, c
 			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка")
 		}
 
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			h.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Ошибка получения серверов")
+		}
+
+		// Find server name for better messaging
+		var serverName string
+		for _, server := range servers {
+			if server.ID == serverID {
+				serverName = server.Name
+				break
+			}
+		}
+
+		// If not found, use serverID as fallback
+		if serverName == "" {
+			serverName = serverID
+		}
+
 		// Remove server from user
 		if err := adapter.RemoveServerFromUser(ctx, int64(user.ID), serverID); err != nil {
 			h.logger.Error("Failed to remove server", "error", err, "server_id", serverID, "user_id", user.ID)
@@ -555,13 +575,13 @@ func (h *DefaultUpdateHandler) handleRemoveServerCallback(ctx context.Context, c
 		}
 
 		// Answer callback and update message
-		callbackMsg := fmt.Sprintf("Сервер %s удален", serverID)
+		callbackMsg := fmt.Sprintf("Сервер %s(%s) удален", serverName, serverID)
 		if err := h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, callbackMsg); err != nil {
 			h.logger.Error("Failed to answer callback", "error", err)
 		}
 
 		// Update original message to show server was removed
-		newMessage := fmt.Sprintf("Сервер %s успешно удален из вашего списка.", serverID)
+		newMessage := fmt.Sprintf("Сервер %s(%s) успешно удален из вашего списка.", serverName, serverID)
 		return h.telegramSvc.EditMessage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, newMessage, nil)
 	}
 
@@ -670,7 +690,7 @@ func createRemoveServerKeyboard(servers []models.ServerWithDetails) interface{} 
 	for _, server := range servers {
 		button := []map[string]string{
 			{
-				"text":          fmt.Sprintf("Удалить %s", server.Name),
+				"text":          fmt.Sprintf("Удалить %s(%s)", server.Name, server.ID),
 				"callback_data": fmt.Sprintf("remove_server:%s", server.ID),
 			},
 		}
@@ -875,7 +895,7 @@ func (b *Bot) selectServer(ctx context.Context, chatID int64, metricType string,
 		callbackData := fmt.Sprintf("metric:%s:%s", metricType, server.ID)
 		button := []map[string]string{
 			{
-				"text":          fmt.Sprintf("🖥️ %s", server.Name),
+				"text":          fmt.Sprintf("🖥️ %s(%s)", server.Name, server.ID),
 				"callback_data": callbackData,
 			},
 		}

@@ -136,11 +136,7 @@ func (s *UserService) FormatServersListPlain(servers []models.ServerWithDetails)
 	result := fmt.Sprintf("Ваши серверы (%d):\n\n", len(servers))
 
 	for i, server := range servers {
-		result += fmt.Sprintf("%d. %s", i+1, server.ID)
-
-		if server.Name != server.ID {
-			result += fmt.Sprintf(" - %s", server.Name)
-		}
+		result += fmt.Sprintf("%d. %s(%s)", i+1, server.Name, server.ID)
 
 		result += fmt.Sprintf("\nДобавлен: %s\n", server.AddedAt.Format("02.01.2006 15:04"))
 		result += fmt.Sprintf("Роль: %s\n\n", server.Role)
