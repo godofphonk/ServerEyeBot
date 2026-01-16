@@ -605,6 +605,7 @@ func (h *DefaultUpdateHandler) handleMetricCallback(ctx context.Context, callbac
 		for _, server := range servers {
 			if server.ID == serverID {
 				selectedServer = &server
+				h.logger.Info("Found server", "server_id", server.ID, "server_name", server.Name, "server_key", server.ServerKey)
 				break
 			}
 		}
@@ -615,6 +616,7 @@ func (h *DefaultUpdateHandler) handleMetricCallback(ctx context.Context, callbac
 
 		// Get metrics for the selected server
 		serverKey := selectedServer.ServerKey
+		h.logger.Info("Using server key", "server_key", serverKey, "server_id", selectedServer.ID)
 		metrics, err := h.metricsService.GetServerMetrics(serverKey)
 		if err != nil {
 			h.logger.Error("Failed to get server metrics", "error", err, "server_key", serverKey)
