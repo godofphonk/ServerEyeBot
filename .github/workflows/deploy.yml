@@ -183,12 +183,10 @@ jobs:
                 - TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}
                 - LOG_LEVEL=${{ vars.LOG_LEVEL || 'info' }}
                 - ENV=production
-                - API_BASE_URL=http://host.docker.internal:8080
+                - API_BASE_URL=https://api.servereye.dev
                 - PORT=${{ vars.BOT_PORT || '8091' }}
                 - ADMIN_USER_ID=${{ secrets.ADMIN_USER_ID }}
                 - DATABASE_URL=postgres://servereyebot@postgres:5432/servereyebot?sslmode=disable
-              extra_hosts:
-                - "host.docker.internal:host-gateway"
               ports:
                 - "${{ vars.BOT_PORT || '8092' }}:8091"
               volumes:
