@@ -469,6 +469,9 @@ func (h *DefaultUpdateHandler) handleRegularMessage(ctx context.Context, message
 }
 
 func (h *DefaultUpdateHandler) handleCallbackData(ctx context.Context, callback *telegram.CallbackQuery) error {
+	// Debug log to see what callback data we receive
+	h.logger.Info("Received callback", "data", callback.Data, "from", callback.From.ID)
+
 	// Handle button callbacks
 	switch callback.Data {
 	case "show_remove_servers":
@@ -477,14 +480,17 @@ func (h *DefaultUpdateHandler) handleCallbackData(ctx context.Context, callback 
 	default:
 		// Handle server removal callbacks
 		if len(callback.Data) > 14 && callback.Data[:14] == "remove_server:" {
+			h.logger.Info("Processing remove server callback")
 			return h.handleRemoveServerCallback(ctx, callback)
 		}
 
 		// Handle metrics callbacks
 		if len(callback.Data) > 7 && callback.Data[:7] == "metric:" {
+			h.logger.Info("Processing metric callback")
 			return h.handleMetricCallback(ctx, callback)
 		}
 
+		h.logger.Warn("Unknown callback data", "data", callback.Data)
 		return h.telegramSvc.SendMessage(ctx, callback.Message.Chat.ID, "Unknown callback")
 	}
 }
@@ -564,14 +570,21 @@ func (h *DefaultUpdateHandler) handleRemoveServerCallback(ctx context.Context, c
 
 // handleMetricCallback handles metric selection callbacks
 func (h *DefaultUpdateHandler) handleMetricCallback(ctx context.Context, callback *telegram.CallbackQuery) error {
+	h.logger.Info("handleMetricCallback called", "callback_data", callback.Data)
+
 	// Parse callback data: metric:metric_type:server_id
 	parts := strings.Split(callback.Data, ":")
+	h.logger.Info("Callback parts", "parts", parts, "len", len(parts))
+
 	if len(parts) != 3 {
+		h.logger.Error("Invalid callback data format", "parts", parts)
 		return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Неверный формат данных")
 	}
 
 	metricType := parts[1]
 	serverID := parts[2]
+
+	h.logger.Info("Parsed callback", "metric_type", metricType, "server_id", serverID)
 
 	// Get user servers
 	if adapter, ok := h.userService.(*services.UserServiceAdapter); ok {
@@ -857,16 +870,19 @@ func (b *Bot) selectServer(ctx context.Context, chatID int64, metricType string,
 	var keyboard [][]map[string]string
 
 	for _, server := range servers {
+		callbackData := fmt.Sprintf("metric:%s:%s", metricType, server.ID)
 		button := []map[string]string{
 			{
 				"text":          fmt.Sprintf("🖥️ %s", server.Name),
-				"callback_data": fmt.Sprintf("metric:%s:%s", metricType, server.ID),
+				"callback_data": callbackData,
 			},
 		}
 		keyboard = append(keyboard, button)
+		b.logger.Info("Created button", "server", server.Name, "callback_data", callbackData)
 	}
 
 	message := fmt.Sprintf("📊 *Выберите сервер для метрики %s:*", metricType)
+	b.logger.Info("Sending keyboard message", "servers_count", len(servers), "metric_type", metricType)
 
 	return nil, b.telegramSvc.SendMessageWithKeyboard(ctx, chatID, message, keyboard)
 }
