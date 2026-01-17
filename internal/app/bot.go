@@ -302,9 +302,13 @@ func (b *Bot) handleServersCommand(ctx context.Context, cmd *domain.Command, arg
 		message := adapter.FormatServersListPlain(servers)
 
 		if len(servers) > 0 {
-			// Create inline keyboard with remove button
+			// Create inline keyboard with remove and rename buttons
 			keyboard := [][]map[string]string{
 				{
+					{
+						"text":          "Изменить имя сервера",
+						"callback_data": "show_rename_servers",
+					},
 					{
 						"text":          "Удалить сервер",
 						"callback_data": "show_remove_servers",
@@ -477,11 +481,20 @@ func (h *DefaultUpdateHandler) handleCallbackData(ctx context.Context, callback 
 	case "show_remove_servers":
 		// Handle show remove servers callback - need to get bot instance differently
 		return h.handleShowRemoveServersCallback(ctx, callback)
+	case "show_rename_servers":
+		// Handle show rename servers callback
+		return h.handleShowRenameServersCallback(ctx, callback)
 	default:
 		// Handle server removal callbacks
 		if len(callback.Data) > 14 && callback.Data[:14] == "remove_server:" {
 			h.logger.Info("Processing remove server callback")
 			return h.handleRemoveServerCallback(ctx, callback)
+		}
+
+		// Handle server rename callbacks
+		if len(callback.Data) > 14 && callback.Data[:14] == "rename_server:" {
+			h.logger.Info("Processing rename server callback")
+			return h.handleRenameServerCallback(ctx, callback)
 		}
 
 		// Handle metrics callbacks
@@ -583,6 +596,95 @@ func (h *DefaultUpdateHandler) handleRemoveServerCallback(ctx context.Context, c
 		// Update original message to show server was removed
 		newMessage := fmt.Sprintf("Сервер %s(%s) успешно удален из вашего списка.", serverName, serverID)
 		return h.telegramSvc.EditMessage(ctx, callback.Message.Chat.ID, callback.Message.MessageID, newMessage, nil)
+	}
+
+	return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка сервиса")
+}
+
+// handleShowRenameServersCallback handles show rename servers callback
+func (h *DefaultUpdateHandler) handleShowRenameServersCallback(ctx context.Context, callback *telegram.CallbackQuery) error {
+	// Get user servers using UserServiceAdapter
+	if adapter, ok := h.userService.(*services.UserServiceAdapter); ok {
+		// Get user from database to get correct user_id
+		user, err := adapter.GetUser(ctx, callback.From.ID)
+		if err != nil {
+			h.logger.Error("Failed to get user", "error", err, "telegram_id", callback.From.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			h.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Ошибка получения серверов")
+		}
+
+		if len(servers) == 0 {
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "У вас нет серверов для переименования")
+		}
+
+		// Create inline keyboard with server rename buttons
+		keyboard := createRenameServerKeyboard(servers)
+
+		message := "Выберите сервер для переименования:\n\n"
+		for _, server := range servers {
+			message += fmt.Sprintf("• %s(%s)\n", server.Name, server.ID)
+		}
+		message += "\nНажмите на сервер который хотите переименовать"
+
+		// Answer callback and send new message
+		if err := h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "Показываю серверы для переименования"); err != nil {
+			h.logger.Error("Failed to answer callback", "error", err)
+		}
+
+		return h.telegramSvc.SendMessageWithKeyboard(ctx, callback.Message.Chat.ID, message, keyboard)
+	}
+
+	return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка сервиса")
+}
+
+// handleRenameServerCallback handles server rename callback
+func (h *DefaultUpdateHandler) handleRenameServerCallback(ctx context.Context, callback *telegram.CallbackQuery) error {
+	serverID := callback.Data[14:] // Remove "rename_server:" prefix
+
+	// Get user from database to get correct user_id
+	if adapter, ok := h.userService.(*services.UserServiceAdapter); ok {
+		user, err := adapter.GetUser(ctx, callback.From.ID)
+		if err != nil {
+			h.logger.Error("Failed to get user", "error", err, "telegram_id", callback.From.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			h.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Ошибка получения серверов")
+		}
+
+		// Find the server to rename
+		var serverToRename *models.ServerWithDetails
+		for _, server := range servers {
+			if server.ID == serverID {
+				serverToRename = &server
+				break
+			}
+		}
+
+		if serverToRename == nil {
+			return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Сервер не найден")
+		}
+
+		// Send instructions for renaming
+		message := fmt.Sprintf("📝 *Переименование сервера*\n\n")
+		message += fmt.Sprintf("Текущий сервер: %s(%s)\n\n", serverToRename.Name, serverToRename.ID)
+		message += "🔄 *Отправьте новое имя для этого сервера в следующем сообщении*\n\n"
+		message += "💡 *Пример:* `Мой рабочий сервер`\n\n"
+		message += "❌ *Отмена:* отправьте `/cancel`"
+
+		if err := h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "Ожидаю новое имя сервера"); err != nil {
+			h.logger.Error("Failed to answer callback", "error", err)
+		}
+
+		return h.telegramSvc.SendMessage(ctx, callback.Message.Chat.ID, message)
 	}
 
 	return h.telegramSvc.AnswerCallbackQuery(ctx, callback.ID, "❌ Внутренняя ошибка сервиса")
@@ -692,6 +794,23 @@ func createRemoveServerKeyboard(servers []models.ServerWithDetails) interface{} 
 			{
 				"text":          fmt.Sprintf("Удалить %s(%s)", server.Name, server.ID),
 				"callback_data": fmt.Sprintf("remove_server:%s", server.ID),
+			},
+		}
+		buttons = append(buttons, button)
+	}
+
+	return buttons
+}
+
+// createRenameServerKeyboard creates inline keyboard for server renaming
+func createRenameServerKeyboard(servers []models.ServerWithDetails) interface{} {
+	var buttons [][]map[string]string
+
+	for _, server := range servers {
+		button := []map[string]string{
+			{
+				"text":          fmt.Sprintf("Переименовать %s(%s)", server.Name, server.ID),
+				"callback_data": fmt.Sprintf("rename_server:%s", server.ID),
 			},
 		}
 		buttons = append(buttons, button)
