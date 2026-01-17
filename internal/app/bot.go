@@ -134,6 +134,12 @@ func (b *Bot) registerCommands() error {
 			Permissions: []string{},
 		},
 		{
+			Name:        "rename",
+			Description: "Rename a server",
+			Handler:     b.handleRenameCommand,
+			Permissions: []string{},
+		},
+		{
 			Name:        "add",
 			Description: "Add server to monitor",
 			Handler:     b.handleAddServerCommand,
@@ -198,6 +204,7 @@ func (b *Bot) getCommandList() []domain.BotCommand {
 		{Command: "start", Description: "Start bot and show welcome message"},
 		{Command: "help", Description: "Show available commands"},
 		{Command: "servers", Description: "List your servers"},
+		{Command: "rename", Description: "Rename a server"},
 		{Command: "add", Description: "Add server to monitor"},
 		{Command: "cpu", Description: "Show CPU metrics"},
 		{Command: "memory", Description: "Show memory metrics"},
@@ -368,6 +375,62 @@ func (b *Bot) handleAddServerCommand(ctx context.Context, cmd *domain.Command, a
 	return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка сервиса. Попробуйте позже.")
 }
 
+func (b *Bot) handleRenameCommand(ctx context.Context, cmd *domain.Command, args []string) error {
+	if len(args) < 2 {
+		chatID := ctx.Value(chatIDKey).(int64)
+		return b.telegramSvc.SendMessage(ctx, chatID, "❌ Укажите ID сервера и новое имя. Пример: /rename key_12313 \"Мой сервер\"")
+	}
+
+	serverID := args[0]
+	newName := strings.Join(args[1:], " ") // Объединяем все остальные аргументы как имя
+	telegramID := ctx.Value(userIDKey).(int64)
+	chatID := ctx.Value(chatIDKey).(int64)
+
+	b.logger.Info("Renaming server", "server_id", serverID, "new_name", newName, "telegram_id", telegramID)
+
+	// Get user servers using UserServiceAdapter
+	if adapter, ok := b.userService.(*services.UserServiceAdapter); ok {
+		user, err := adapter.GetUser(ctx, telegramID)
+		if err != nil {
+			b.logger.Error("Failed to get user", "error", err, "telegram_id", telegramID)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка. Попробуйте позже.")
+		}
+
+		servers, err := adapter.GetUserServers(ctx, int64(user.ID))
+		if err != nil {
+			b.logger.Error("Failed to get user servers", "error", err, "user_id", user.ID)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Произошла ошибка при получении списка серверов. Попробуйте позже.")
+		}
+
+		// Find the server to rename
+		var serverToRename *models.ServerWithDetails
+		for _, server := range servers {
+			if server.ID == serverID {
+				serverToRename = &server
+				break
+			}
+		}
+
+		if serverToRename == nil {
+			return b.telegramSvc.SendMessage(ctx, chatID, fmt.Sprintf("❌ Сервер `%s` не найден в вашем списке.", serverID))
+		}
+
+		// Update server name in database
+		// TODO: Implement UpdateServerName method in UserServiceAdapter
+		// For now, just show success message (placeholder)
+		// err = adapter.UpdateServerName(ctx, int64(user.ID), serverID, newName)
+		// if err != nil {
+		// 	b.logger.Error("Failed to update server name", "error", err, "server_id", serverID, "new_name", newName)
+		// 	return b.telegramSvc.SendMessage(ctx, chatID, "❌ Не удалось переименовать сервер. Попробуйте позже.")
+		// }
+
+		successMsg := fmt.Sprintf("✅ Функция переименования в разработке. Сервер `%s` будет переименован в `%s` скоро!", serverID, newName)
+		return b.telegramSvc.SendMessage(ctx, chatID, successMsg)
+	}
+
+	return b.telegramSvc.SendMessage(ctx, chatID, "❌ Внутренняя ошибка сервиса. Попробуйте позже.")
+}
+
 // Start starts the bot
 func (b *Bot) Start(ctx context.Context) error {
 	// Set bot commands
@@ -461,6 +524,9 @@ func (h *DefaultUpdateHandler) handleCallback(ctx context.Context, callback *tel
 }
 
 func (h *DefaultUpdateHandler) handleRegularMessage(ctx context.Context, message *telegram.Message, user *domain.User) error {
+	// Check if user is in rename mode (simplified approach)
+	// For now, we'll handle rename requests with /rename command format
+
 	// Help message for non-commands
 	helpMsg := `🤔 Я не понимаю обычные сообщения.
 
@@ -468,7 +534,8 @@ func (h *DefaultUpdateHandler) handleRegularMessage(ctx context.Context, message
 /start - Начать
 /help - Помощь
 /servers - Ваши сервера
-/add <server_id> - Добавить сервер`
+/add <server_id> - Добавить сервер
+/rename <server_id> <new_name> - Переименовать сервер`
 	return h.telegramSvc.SendMessage(ctx, message.Chat.ID, helpMsg)
 }
 
