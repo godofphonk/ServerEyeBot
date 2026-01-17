@@ -79,6 +79,11 @@ func (a *UserServiceAdapter) RemoveServerFromUser(ctx context.Context, userID in
 	return a.service.RemoveServerFromUser(ctx, userID, serverID)
 }
 
+// UpdateServerName updates the name of a server
+func (a *UserServiceAdapter) UpdateServerName(ctx context.Context, userID int64, serverID, newName string) error {
+	return a.service.UpdateServerName(ctx, userID, serverID, newName)
+}
+
 // FormatServersList formats servers list for display
 func (a *UserServiceAdapter) FormatServersList(servers []models.ServerWithDetails) string {
 	return a.service.FormatServersList(servers)

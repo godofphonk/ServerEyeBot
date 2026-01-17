@@ -100,6 +100,26 @@ func (s *UserService) RemoveServerFromUser(ctx context.Context, userID int64, se
 	return s.repo.RemoveServerFromUser(userID, serverID)
 }
 
+// UpdateServerName updates the name of a server for a user
+func (s *UserService) UpdateServerName(ctx context.Context, userID int64, serverID, newName string) error {
+	log.Printf("Updating server name for %s to '%s' for user %d", serverID, newName, userID)
+
+	// Check if user has access to this server
+	hasAccess, err := s.IsServerOwnedByUser(ctx, userID, serverID)
+	if err != nil {
+		log.Printf("Error checking server access: %v", err)
+		return err
+	}
+
+	if !hasAccess {
+		log.Printf("User %d does not have access to server %s", userID, serverID)
+		return fmt.Errorf("server '%s' not found in user's list", serverID)
+	}
+
+	// Update server name using repository
+	return s.repo.UpdateServerName(ctx, serverID, newName)
+}
+
 // IsServerOwnedByUser checks if server is owned by user
 func (s *UserService) IsServerOwnedByUser(ctx context.Context, userID int64, serverID string) (bool, error) {
 	return s.repo.IsServerOwnedByUser(userID, serverID)

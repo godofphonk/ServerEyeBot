@@ -416,15 +416,13 @@ func (b *Bot) handleRenameCommand(ctx context.Context, cmd *domain.Command, args
 		}
 
 		// Update server name in database
-		// TODO: Implement UpdateServerName method in UserServiceAdapter
-		// For now, just show success message (placeholder)
-		// err = adapter.UpdateServerName(ctx, int64(user.ID), serverID, newName)
-		// if err != nil {
-		// 	b.logger.Error("Failed to update server name", "error", err, "server_id", serverID, "new_name", newName)
-		// 	return b.telegramSvc.SendMessage(ctx, chatID, "❌ Не удалось переименовать сервер. Попробуйте позже.")
-		// }
+		err = adapter.UpdateServerName(ctx, int64(user.ID), serverID, newName)
+		if err != nil {
+			b.logger.Error("Failed to update server name", "error", err, "server_id", serverID, "new_name", newName)
+			return b.telegramSvc.SendMessage(ctx, chatID, "❌ Не удалось переименовать сервер. Попробуйте позже.")
+		}
 
-		successMsg := fmt.Sprintf("✅ Функция переименования в разработке. Сервер `%s` будет переименован в `%s` скоро!", serverID, newName)
+		successMsg := fmt.Sprintf("✅ Сервер `%s` успешно переименован в `%s`!", serverID, newName)
 		return b.telegramSvc.SendMessage(ctx, chatID, successMsg)
 	}
 

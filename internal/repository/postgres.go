@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -161,4 +162,11 @@ func (r *PostgresRepository) IsServerOwnedByUser(userID int64, serverID string) 
 	var exists bool
 	err := r.db.QueryRow(query, userID, serverID).Scan(&exists)
 	return exists, err
+}
+
+// UpdateServerName updates the name of a server
+func (r *PostgresRepository) UpdateServerName(ctx context.Context, serverID, newName string) error {
+	query := `UPDATE servers SET name = $1, updated_at = CURRENT_TIMESTAMP WHERE server_id = $2`
+	_, err := r.db.ExecContext(ctx, query, newName, serverID)
+	return err
 }
