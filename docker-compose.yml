@@ -9,10 +9,10 @@ services:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - ENV=${ENV:-development}
-      - API_BASE_URL=https://api.servereye.dev
+      - API_BASE_URL=http://servereye-api:8080
       - PORT=${PORT:-8091}
       - ADMIN_USER_ID=${ADMIN_USER_ID}
-      - DATABASE_URL=postgres://servereyebot:servereye123@postgres:5432/servereyebot?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL:-postgres://servereyebot:servereye123@bot-postgres:5432/servereyebot?sslmode=disable}
     ports:
       - "8092:8091"
     volumes:
@@ -20,7 +20,8 @@ services:
     networks:
       - servereye-network
     depends_on:
-      - postgres
+      bot-postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8091/health"]
       interval: 30s
@@ -28,7 +29,7 @@ services:
       retries: 3
       start_period: 40s
 
-  postgres:
+  bot-postgres:
     image: postgres:15-alpine
     container_name: ServerEyeBot-PostgreSQL
     restart: unless-stopped
@@ -37,7 +38,7 @@ services:
       - POSTGRES_USER=servereyebot
       - POSTGRES_PASSWORD=servereye123
     ports:
-      - "5434:5432"
+      - "5436:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -54,4 +55,5 @@ volumes:
 
 networks:
   servereye-network:
-    driver: bridge
+    external: true
+    name: servereye-network
