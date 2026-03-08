@@ -74,6 +74,11 @@ func (a *UserServiceAdapter) AddServerToUser(ctx context.Context, userID int64, 
 	return a.service.AddServerToUser(ctx, userID, serverID, source)
 }
 
+// AddTelegramIdentifierToServer adds Telegram ID to server source identifiers
+func (a *UserServiceAdapter) AddTelegramIdentifierToServer(ctx context.Context, userID int64, serverKey, telegramID, username, firstName string) error {
+	return a.service.AddTelegramIdentifierToServer(ctx, userID, serverKey, telegramID, username, firstName)
+}
+
 // RemoveServerFromUser removes a server from user's server list
 func (a *UserServiceAdapter) RemoveServerFromUser(ctx context.Context, userID int64, serverID string) error {
 	return a.service.RemoveServerFromUser(ctx, userID, serverID)

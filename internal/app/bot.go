@@ -368,6 +368,12 @@ func (b *Bot) handleAddServerCommand(ctx context.Context, cmd *domain.Command, a
 			}
 		}
 
+		// Add Telegram ID to server identifiers
+		if err := adapter.AddTelegramIdentifierToServer(ctx, int64(user.ID), serverID, fmt.Sprintf("%d", telegramID), user.Username, user.FirstName); err != nil {
+			b.logger.Warn("Failed to add Telegram identifier to server", "error", err, "server_id", serverID, "telegram_id", telegramID)
+			// Don't fail the operation, just log the warning
+		}
+
 		successMsg := fmt.Sprintf("✅ Сервер `%s` успешно добавлен в ваш список!\n\nИспользуйте /servers для просмотра всех ваших серверов.", serverID)
 		return b.telegramSvc.SendMessage(ctx, chatID, successMsg)
 	}
@@ -739,7 +745,7 @@ func (h *DefaultUpdateHandler) handleRenameServerCallback(ctx context.Context, c
 		}
 
 		// Send instructions for renaming
-		message := fmt.Sprintf("📝 *Переименование сервера*\n\n")
+		message := "📝 *Переименование сервера*\n\n"
 		message += fmt.Sprintf("Текущий сервер: %s(%s)\n\n", serverToRename.Name, serverToRename.ID)
 		message += "🔄 *Отправьте новое имя для этого сервера в следующем сообщении*\n\n"
 		message += "💡 *Пример:* `Мой рабочий сервер`\n\n"

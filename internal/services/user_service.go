@@ -88,6 +88,31 @@ func (s *UserService) AddServerToUser(ctx context.Context, userID int64, serverK
 	}
 }
 
+// AddTelegramIdentifierToServer adds Telegram ID to server source identifiers
+func (s *UserService) AddTelegramIdentifierToServer(ctx context.Context, userID int64, serverKey, telegramID, username, firstName string) error {
+	log.Printf("Adding Telegram ID %s to server %s for user %d", telegramID, serverKey, userID)
+
+	// Validate server key format
+	if err := api.ValidateServerID(serverKey); err != nil {
+		log.Printf("Invalid server key format: %v", err)
+		return err
+	}
+
+	// Add Telegram identifier via API
+	if s.apiClient != nil {
+		_, err := s.apiClient.AddTelegramIdentifier(ctx, serverKey, telegramID, username, firstName)
+		if err != nil {
+			log.Printf("Failed to add Telegram identifier to server %s: %v", serverKey, err)
+			return fmt.Errorf("failed to add Telegram identifier to server '%s'", serverKey)
+		}
+		log.Printf("Telegram identifier added successfully to server %s", serverKey)
+		return nil
+	}
+
+	log.Printf("API client not available, skipping Telegram identifier addition")
+	return nil
+}
+
 // GetUserServers retrieves all servers for a user
 func (s *UserService) GetUserServers(ctx context.Context, userID int64) ([]models.ServerWithDetails, error) {
 	log.Printf("Getting servers for user %d", userID)

@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/servereye/servereyebot/pkg/domain"
@@ -41,6 +43,24 @@ func NewClient(baseURL string, logger Logger) *Client {
 // AddServerSourceRequest represents request to add server source
 type AddServerSourceRequest struct {
 	Source string `json:"source"` // "TGBot" or "Web"
+}
+
+// AddIdentifierRequest represents request to add identifier to server source
+type AddIdentifierRequest struct {
+	SourceType     string            `json:"source_type"`     // "TGBot"
+	Identifiers    []string          `json:"identifiers"`     // Telegram IDs
+	IdentifierType string            `json:"identifier_type"` // "telegram_id"
+	Metadata       map[string]string `json:"metadata"`        // User metadata
+}
+
+// AddIdentifierResponse represents response from adding identifier
+type AddIdentifierResponse struct {
+	Message        string   `json:"message"`
+	ServerID       string   `json:"server_id"`
+	ServerKey      string   `json:"server_key"`
+	SourceType     string   `json:"source_type"`
+	Identifiers    []string `json:"identifiers"`
+	IdentifierType string   `json:"identifier_type"`
 }
 
 // AddServerSourceResponse represents response from adding server source
@@ -208,6 +228,90 @@ func (c *Client) GetServerMetrics(ctx context.Context, serverKey string) (*domai
 	}
 
 	c.logger.Info("Server metrics retrieved successfully", "server_key", serverKey)
+
+	return &response, nil
+}
+
+// AddTelegramIdentifier adds Telegram ID to server source identifiers
+func (c *Client) AddTelegramIdentifier(ctx context.Context, serverKey, telegramID, username, firstName string) (*AddIdentifierResponse, error) {
+	c.logger.Debug("Adding Telegram identifier", "server_key", serverKey, "telegram_id", telegramID)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/sources/identifiers", c.baseURL, serverKey)
+
+	reqBody := AddIdentifierRequest{
+		SourceType:     "TGBot",
+		Identifiers:    []string{telegramID},
+		IdentifierType: "telegram_id",
+		Metadata: map[string]string{
+			"chat_type":  "private",
+			"username":   username,
+			"first_name": firstName,
+		},
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, errors.NewInternalError("failed to marshal request", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, errors.NewInternalError("failed to create request", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to add Telegram identifier", "error", err, "server_key", serverKey, "telegram_id", telegramID)
+		return nil, errors.NewExternalError("ServerEye API", "add telegram identifier", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		// Success case
+	case http.StatusNotFound:
+		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
+		return nil, errors.NewNotFoundError(fmt.Sprintf("server with key '%s'", serverKey))
+	case http.StatusBadRequest:
+		// Could be "already exists" or "invalid data"
+		body, _ := io.ReadAll(resp.Body)
+		errorMsg := string(body)
+		if strings.Contains(errorMsg, "already exist") {
+			c.logger.Info("Telegram ID already exists", "server_key", serverKey, "telegram_id", telegramID)
+			// This is not necessarily an error - we can return success
+			return &AddIdentifierResponse{
+				Message:        "Identifier already exists",
+				ServerKey:      serverKey,
+				SourceType:     "TGBot",
+				Identifiers:    []string{telegramID},
+				IdentifierType: "telegram_id",
+			}, nil
+		}
+		c.logger.Error("Bad request", "server_key", serverKey, "telegram_id", telegramID, "error", errorMsg)
+		return nil, errors.NewValidationError("invalid request data", map[string]interface{}{
+			"server_key":  serverKey,
+			"telegram_id": telegramID,
+			"api_error":   errorMsg,
+		})
+	default:
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey, "telegram_id", telegramID)
+		return nil, errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	var response AddIdentifierResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, errors.NewInternalError("failed to decode response", err)
+	}
+
+	c.logger.Info("Telegram identifier added successfully",
+		"server_id", response.ServerID,
+		"server_key", response.ServerKey,
+		"telegram_id", telegramID,
+		"message", response.Message)
 
 	return &response, nil
 }
