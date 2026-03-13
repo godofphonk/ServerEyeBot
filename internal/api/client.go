@@ -315,3 +315,127 @@ func (c *Client) AddTelegramIdentifier(ctx context.Context, serverKey, telegramI
 
 	return &response, nil
 }
+
+// RemoveServerSource removes a source from server by key
+func (c *Client) RemoveServerSource(ctx context.Context, serverKey, source string) error {
+	c.logger.Debug("Removing server source", "server_key", serverKey, "source", source)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/sources/%s", c.baseURL, serverKey, source)
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)
+	if err != nil {
+		return errors.NewInternalError("failed to create request", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to remove server source", "error", err, "server_key", serverKey, "source", source)
+		return errors.NewExternalError("ServerEye API", "remove server source", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Warn("Server or source not found", "server_key", serverKey, "source", source, "status", resp.StatusCode)
+		return errors.NewNotFoundError(fmt.Sprintf("server with key '%s' or source '%s'", serverKey, source))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey, "source", source)
+		return errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	c.logger.Info("Server source removed successfully", "server_key", serverKey, "source", source)
+	return nil
+}
+
+// RemoveServerIdentifiers removes specific identifiers from server
+func (c *Client) RemoveServerIdentifiers(ctx context.Context, serverKey string, identifiers []string) error {
+	c.logger.Debug("Removing server identifiers", "server_key", serverKey, "identifiers", identifiers)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/sources/identifiers", c.baseURL, serverKey)
+
+	reqBody := map[string][]string{
+		"identifiers": identifiers,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return errors.NewInternalError("failed to marshal request", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return errors.NewInternalError("failed to create request", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to remove server identifiers", "error", err, "server_key", serverKey)
+		return errors.NewExternalError("ServerEye API", "remove server identifiers", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
+		return errors.NewNotFoundError(fmt.Sprintf("server with key '%s'", serverKey))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey)
+		return errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	c.logger.Info("Server identifiers removed successfully", "server_key", serverKey, "identifiers", identifiers)
+	return nil
+}
+
+// RemoveServerSourceIdentifiers removes specific identifiers from a specific source
+func (c *Client) RemoveServerSourceIdentifiers(ctx context.Context, serverKey, source string, identifiers []string) error {
+	c.logger.Debug("Removing server source identifiers", "server_key", serverKey, "source", source, "identifiers", identifiers)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/sources/%s/identifiers", c.baseURL, serverKey, source)
+
+	reqBody := map[string][]string{
+		"identifiers": identifiers,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return errors.NewInternalError("failed to marshal request", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "DELETE", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return errors.NewInternalError("failed to create request", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to remove server source identifiers", "error", err, "server_key", serverKey, "source", source)
+		return errors.NewExternalError("ServerEye API", "remove server source identifiers", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Warn("Server or source not found", "server_key", serverKey, "source", source, "status", resp.StatusCode)
+		return errors.NewNotFoundError(fmt.Sprintf("server with key '%s' or source '%s'", serverKey, source))
+	}
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey, "source", source)
+		return errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	c.logger.Info("Server source identifiers removed successfully", "server_key", serverKey, "source", source, "identifiers", identifiers)
+	return nil
+}

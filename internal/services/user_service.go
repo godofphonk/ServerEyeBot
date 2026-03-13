@@ -119,9 +119,37 @@ func (s *UserService) GetUserServers(ctx context.Context, userID int64) ([]model
 	return s.repo.GetUserServers(userID)
 }
 
-// RemoveServerFromUser removes a server from user's server list
+// RemoveServerFromUser removes a server from user's server list and removes user's Telegram identifier from TGBot source
 func (s *UserService) RemoveServerFromUser(ctx context.Context, userID int64, serverID string) error {
 	log.Printf("Removing server %s from user %d", serverID, userID)
+
+	// Get user by internal ID to obtain Telegram ID
+	user, err := s.repo.GetUserByID(userID)
+	if err != nil {
+		log.Printf("Failed to get user %d: %v", userID, err)
+		return s.repo.RemoveServerFromUser(userID, serverID) // Still remove from DB even if API fails
+	}
+
+	// Remove user's Telegram identifier from TGBot source via API
+	if s.apiClient != nil && user.TelegramID > 0 {
+		telegramIDStr := fmt.Sprintf("%d", user.TelegramID)
+		log.Printf("Removing Telegram ID %s from TGBot source of server %s", telegramIDStr, serverID)
+
+		if err := s.apiClient.RemoveServerSourceIdentifiers(ctx, serverID, "TGBot", []string{telegramIDStr}); err != nil {
+			log.Printf("Failed to remove Telegram identifier from server %s: %v", serverID, err)
+			// Don't fail the operation, just log the warning - user might still want to remove server from list
+		} else {
+			log.Printf("Telegram identifier removed successfully from server %s", serverID)
+		}
+	} else {
+		if user.TelegramID <= 0 {
+			log.Printf("User %d has no Telegram ID, skipping identifier removal", userID)
+		} else {
+			log.Printf("API client not available, skipping Telegram identifier removal")
+		}
+	}
+
+	// Remove server from user's list in database
 	return s.repo.RemoveServerFromUser(userID, serverID)
 }
 
