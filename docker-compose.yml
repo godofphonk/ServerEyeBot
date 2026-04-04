@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ServerEyeBot-TelegramBot
+    container_name: ServerEyeWeb-telegram-bot
     restart: unless-stopped
     environment:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
@@ -30,7 +30,7 @@ services:
 
   postgres:
     image: postgres:15-alpine
-    container_name: ServerEyeBot-PostgreSQL
+    container_name: ServerEyeWeb-telegram-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_DB=servereyebot
