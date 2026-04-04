@@ -134,14 +134,19 @@ ON CONFLICT (server_id) DO NOTHING
 
 // GetUserServers retrieves all servers for a user
 func (r *PostgresRepository) GetUserServers(userID int64) ([]models.ServerWithDetails, error) {
+	fmt.Printf("=== POSTGRES REPO GetUserServers CALLED ===\n")
+
 	query := `
 SELECT s.server_id as id, s.name, s.description, s.created_at, s.updated_at,
-       s.server_id as server_key, us.role as source, us.added_at
+       s.server_id as server_key, 'TGBot' as source, us.created_at as added_at
 FROM servers s
 INNER JOIN user_servers us ON s.id = us.server_id
 WHERE us.user_id = $1
-ORDER BY us.added_at DESC
+ORDER BY us.created_at DESC
 `
+
+	fmt.Printf("DEBUG: Executing SQL: %s\n", query)
+	fmt.Printf("DEBUG: User ID: %d\n", userID)
 
 	rows, err := r.db.Query(query, userID)
 	if err != nil {
