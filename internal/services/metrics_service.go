@@ -188,22 +188,6 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 		return "❌ Метрики температуры недоступны"
 	}
 
-	// Try to use new metrics structure first
-	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
-		var sb strings.Builder
-		sb.WriteString("🌡️ Температура:\n")
-		sb.WriteString(fmt.Sprintf("- CPU: %.1f°C\n", newMetrics.Temperatures.CPU))
-		sb.WriteString(fmt.Sprintf("- GPU: %.1f°C\n", newMetrics.Temperatures.GPU))
-		sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C\n", newMetrics.Temperatures.Highest))
-
-		for _, storage := range newMetrics.Temperatures.Storage {
-			sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", storage.Device, storage.Temperature))
-		}
-
-		return sb.String()
-	}
-
-	// Fallback to legacy structure
 	var sb strings.Builder
 	sb.WriteString("🌡️ Температура:\n")
 	sb.WriteString(fmt.Sprintf("- CPU: %.1f°C\n", metrics.TemperatureDetails.CPUTemperature))
@@ -506,6 +490,7 @@ func (s *MetricsServiceImpl) convertToLegacyMetrics(newResponse *domain.MetricsR
 	legacyResponse.Metrics.TemperatureDetails = domain.TemperatureDetails{
 		CPUTemperature:     newResponse.Metrics.Temperatures.CPU,
 		GPUTemperature:     newResponse.Metrics.Temperatures.GPU,
+		SystemTemperature:  newResponse.Metrics.Temperatures.CPU, // Use CPU as system temp fallback
 		HighestTemperature: newResponse.Metrics.Temperatures.Highest,
 	}
 
