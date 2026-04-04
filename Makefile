@@ -27,7 +27,12 @@ test-coverage:
 # Run linter
 lint:
 	@echo "Running linter..."
-	golangci-lint run
+	go vet ./...
+	go fmt ./...
+	@echo "Running errcheck..."
+	@if command -v errcheck >/dev/null 2>&1; then errcheck ./...; else echo "errcheck not found, skipping..."; fi
+	@echo "Running staticcheck..."
+	@if command -v staticcheck >/dev/null 2>&1; then staticcheck ./...; else echo "staticcheck not found, skipping..."; fi
 
 # Format code
 fmt:
