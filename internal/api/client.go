@@ -395,6 +395,91 @@ func (c *Client) RemoveServerIdentifiers(ctx context.Context, serverKey string, 
 	return nil
 }
 
+// GetServerStatus gets server status by server key
+func (c *Client) GetServerStatus(ctx context.Context, serverKey string) (*domain.ServerStatusResponse, error) {
+	c.logger.Debug("Getting server status", "server_key", serverKey)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/status", c.baseURL, serverKey)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, errors.NewInternalError("failed to create request", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to get server status", "error", err, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", "get server status", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
+		return nil, errors.NewNotFoundError(fmt.Sprintf("server with key '%s'", serverKey))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	var response domain.ServerStatusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, errors.NewInternalError("failed to decode response", err)
+	}
+
+	c.logger.Info("Server status retrieved successfully",
+		"server_id", response.ServerID,
+		"server_key", response.ServerKey,
+		"online", response.Online)
+
+	return &response, nil
+}
+
+// GetServerStaticInfo gets server static information by server key
+func (c *Client) GetServerStaticInfo(ctx context.Context, serverKey string) (*domain.StaticInfoResponse, error) {
+	c.logger.Debug("Getting server static info", "server_key", serverKey)
+
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/static-info", c.baseURL, serverKey)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, errors.NewInternalError("failed to create request", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		c.logger.Error("Failed to get server static info", "error", err, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", "get server static info", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode == http.StatusNotFound {
+		c.logger.Warn("Server not found", "server_key", serverKey, "status", resp.StatusCode)
+		return nil, errors.NewNotFoundError(fmt.Sprintf("server with key '%s'", serverKey))
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error("Unexpected status code", "status", resp.StatusCode, "server_key", serverKey)
+		return nil, errors.NewExternalError("ServerEye API", fmt.Sprintf("unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	var response domain.StaticInfoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, errors.NewInternalError("failed to decode response", err)
+	}
+
+	c.logger.Info("Server static info retrieved successfully",
+		"server_id", response.ServerInfo.ServerID,
+		"hostname", response.ServerInfo.Hostname)
+
+	return &response, nil
+}
+
 // RemoveServerSourceIdentifiers removes specific identifiers from a specific source
 func (c *Client) RemoveServerSourceIdentifiers(ctx context.Context, serverKey, source string, identifiers []string) error {
 	c.logger.Debug("Removing server source identifiers", "server_key", serverKey, "source", source, "identifiers", identifiers)
