@@ -12,7 +12,7 @@ services:
       - API_BASE_URL=${API_BASE_URL:-http://servereye-api:8080}
       - PORT=${PORT:-8091}
       - ADMIN_USER_ID=${ADMIN_USER_ID}
-      - DATABASE_URL=postgres://servereyebot:servereye123@postgres:5432/servereyebot?sslmode=disable
+      - DATABASE_URL=${DATABASE_URL:-postgres://servereyebot:servereye123@bot-postgres:5432/servereyebot?sslmode=disable}
     ports:
       - "8092:8091"
     volumes:
@@ -20,7 +20,8 @@ services:
     networks:
       - servereye-network
     depends_on:
-      - postgres
+      bot-postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "sh", "-c", "wget --no-verbose --tries=1 --timeout=5 -O- http://localhost:8091/health | grep -q 'healthy'"]
       interval: 30s
@@ -28,7 +29,7 @@ services:
       retries: 3
       start_period: 40s
 
-  postgres:
+  bot-postgres:
     image: postgres:15-alpine
     container_name: ServerEyeWeb-telegram-postgres
     restart: unless-stopped
