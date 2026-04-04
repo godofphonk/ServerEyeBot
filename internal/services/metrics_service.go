@@ -37,21 +37,10 @@ func NewMetricsService(apiClient *api.Client, logger Logger) *MetricsServiceImpl
 	}
 }
 
-// GetServerMetrics retrieves server metrics with caching
-func (s *MetricsServiceImpl) GetServerMetrics(serverKey string) (*domain.MetricsResponse, error) {
-	s.cacheMutex.RLock()
-
-	// Check cache first
-	if cached, exists := s.cache[serverKey]; exists {
-		if time.Now().Before(cached.ExpiresAt) {
-			s.cacheMutex.RUnlock()
-			s.logger.Debug("Metrics retrieved from cache", "server_key", serverKey)
-			return cached.Metrics, nil
-		}
-		// Cache expired, remove it
-		delete(s.cache, serverKey)
-	}
-	s.cacheMutex.RUnlock()
+// GetServerMetrics retrieves server metrics directly from API (no cache)
+func (s *MetricsServiceImpl) GetServerMetrics(serverKey string) (*domain.LegacyMetricsResponse, error) {
+	fmt.Printf("=== GETTING FRESH METRICS FROM API ===\n")
+	s.logger.Info("Getting fresh server metrics from API", "server_key", serverKey)
 
 	// Fetch from API
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -63,17 +52,12 @@ func (s *MetricsServiceImpl) GetServerMetrics(serverKey string) (*domain.Metrics
 		return nil, err
 	}
 
-	// Cache the result
-	s.cacheMutex.Lock()
-	s.cache[serverKey] = &domain.MetricsCache{
-		ServerKey: serverKey,
-		Metrics:   metrics,
-		ExpiresAt: time.Now().Add(60 * time.Second), // 60 seconds cache
-	}
-	s.cacheMutex.Unlock()
+	// Convert new API structure to legacy format for compatibility
+	legacyMetrics := s.convertToLegacyMetrics(metrics)
 
-	s.logger.Info("Server metrics cached", "server_key", serverKey)
-	return metrics, nil
+	fmt.Printf("=== METRICS CONVERTED SUCCESSFULLY ===\n")
+	s.logger.Info("Server metrics retrieved and converted successfully", "server_key", serverKey)
+	return legacyMetrics, nil
 }
 
 // FormatCPU formats CPU metrics for display
@@ -82,6 +66,20 @@ func (s *MetricsServiceImpl) FormatCPU(metrics *domain.ServerMetrics) string {
 		return "❌ Метрики CPU недоступны"
 	}
 
+	// Try to use new metrics structure first
+	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("🖥️ Загрузка процессора: %.1f%%\n", newMetrics.CPUPercent))
+		sb.WriteString(fmt.Sprintf("- Load Average: %.2f, %.2f, %.2f\n",
+			newMetrics.LoadAverage.Min1,
+			newMetrics.LoadAverage.Min5,
+			newMetrics.LoadAverage.Min15))
+		sb.WriteString(fmt.Sprintf("- Процессы: %d (%d running)",
+			newMetrics.ProcessesTotal, newMetrics.ProcessesRunning))
+		return sb.String()
+	}
+
+	// Fallback to legacy structure
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("🖥️ Загрузка процессора: %.1f%%\n", metrics.CPU))
 	sb.WriteString(fmt.Sprintf("- User: %.1f%%\n", metrics.CPUUsage.UsageUser))
@@ -102,6 +100,20 @@ func (s *MetricsServiceImpl) FormatMemory(metrics *domain.ServerMetrics) string 
 		return "❌ Метрики памяти недоступны"
 	}
 
+	// Try to use new metrics structure first
+	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("💾 Память: %.1f%% использовано\n", newMetrics.MemoryPercent))
+		sb.WriteString(fmt.Sprintf("- Всего: %.1f GB\n", newMetrics.MemoryDetails.UsedGB+newMetrics.MemoryDetails.FreeGB+newMetrics.MemoryDetails.AvailableGB))
+		sb.WriteString(fmt.Sprintf("- Использовано: %.1f GB\n", newMetrics.MemoryDetails.UsedGB))
+		sb.WriteString(fmt.Sprintf("- Доступно: %.1f GB\n", newMetrics.MemoryDetails.AvailableGB))
+		sb.WriteString(fmt.Sprintf("- Свободно: %.1f GB\n", newMetrics.MemoryDetails.FreeGB))
+		sb.WriteString(fmt.Sprintf("- Кеш: %.1f GB\n", newMetrics.MemoryDetails.CachedGB))
+		sb.WriteString(fmt.Sprintf("- Буферы: %.1f GB", newMetrics.MemoryDetails.BuffersGB))
+		return sb.String()
+	}
+
+	// Fallback to legacy structure
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("💾 Память: %.1f%% использовано\n", metrics.Memory))
 	sb.WriteString(fmt.Sprintf("- Всего: %.2f GB\n", metrics.MemoryDetails.TotalGB))
@@ -114,7 +126,26 @@ func (s *MetricsServiceImpl) FormatMemory(metrics *domain.ServerMetrics) string 
 
 // FormatDisk formats disk metrics for display
 func (s *MetricsServiceImpl) FormatDisk(metrics *domain.ServerMetrics) string {
-	if metrics == nil || len(metrics.DiskDetails) == 0 {
+	if metrics == nil {
+		return "❌ Метрики диска недоступны"
+	}
+
+	// Try to use new metrics structure first
+	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
+		var sb strings.Builder
+		sb.WriteString("💿 Дисковое пространство:\n")
+
+		for _, disk := range newMetrics.DiskDetails {
+			sb.WriteString(fmt.Sprintf("%s\n", disk.Path))
+			sb.WriteString(fmt.Sprintf("- Использовано: %d GB (%.0f%%)\n", int(disk.UsedGB), float64(disk.UsedPercent)))
+			sb.WriteString(fmt.Sprintf("- Свободно: %d GB\n", int(disk.FreeGB)))
+		}
+
+		return sb.String()
+	}
+
+	// Fallback to legacy structure
+	if len(metrics.DiskDetails) == 0 {
 		return "❌ Метрики диска недоступны"
 	}
 
@@ -138,12 +169,45 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 		return "❌ Метрики температуры недоступны"
 	}
 
+	// Debug log to see what we actually have
+	s.logger.Info("DEBUG: Temperature values in legacy metrics",
+		"cpu", metrics.TemperatureDetails.CPUTemperature,
+		"gpu", metrics.TemperatureDetails.GPUTemperature,
+		"system", metrics.TemperatureDetails.SystemTemperature,
+		"highest", metrics.TemperatureDetails.HighestTemperature)
+
 	var sb strings.Builder
 	sb.WriteString("🌡️ Температура:\n")
 	sb.WriteString(fmt.Sprintf("- CPU: %.1f°C\n", metrics.TemperatureDetails.CPUTemperature))
 	sb.WriteString(fmt.Sprintf("- GPU: %.1f°C\n", metrics.TemperatureDetails.GPUTemperature))
 	sb.WriteString(fmt.Sprintf("- System: %.1f°C\n", metrics.TemperatureDetails.SystemTemperature))
-	sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C", metrics.TemperatureDetails.HighestTemperature))
+	sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C\n", metrics.TemperatureDetails.HighestTemperature))
+
+	// Try to get fresh storage temperatures from API
+	// We'll make a separate API call to get the latest metrics with storage temps
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Get server key from cache or use a default approach
+	var serverKey string
+	s.cacheMutex.RLock()
+	for key := range s.cache {
+		serverKey = key
+		break // Use first available server key
+	}
+	s.cacheMutex.RUnlock()
+
+	if serverKey != "" {
+		if freshMetrics, err := s.apiClient.GetServerMetrics(ctx, serverKey); err == nil {
+			for _, storage := range freshMetrics.Metrics.Temperatures.Storage {
+				deviceName := storage.Device
+				if len(deviceName) > 10 {
+					deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
+				}
+				sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
+			}
+		}
+	}
 
 	return sb.String()
 }
@@ -154,6 +218,18 @@ func (s *MetricsServiceImpl) FormatNetwork(metrics *domain.ServerMetrics) string
 		return "❌ Метрики сети недоступны"
 	}
 
+	// Try to use new metrics structure first
+	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
+		var sb strings.Builder
+		sb.WriteString("🌐 Сеть:\n")
+		sb.WriteString(fmt.Sprintf("- Прием: %.2f Mbps\n", newMetrics.NetworkDetails.TotalRxMbps))
+		sb.WriteString(fmt.Sprintf("- Передача: %.2f Mbps\n", newMetrics.NetworkDetails.TotalTxMbps))
+		sb.WriteString(fmt.Sprintf("- Общий трафик: %.2f Mbps", newMetrics.NetworkMbps))
+
+		return sb.String()
+	}
+
+	// Fallback to legacy structure
 	var sb strings.Builder
 	sb.WriteString("🌐 Сеть:\n")
 	sb.WriteString(fmt.Sprintf("- Прием: %.2f Mbps\n", metrics.NetworkDetails.TotalRxMbps))
@@ -215,6 +291,42 @@ func (s *MetricsServiceImpl) FormatAll(metrics *domain.ServerMetrics) string {
 		return "❌ Метрики недоступны"
 	}
 
+	// Try to use new metrics structure first
+	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
+		var sb strings.Builder
+		sb.WriteString("📊 Общая сводка метрик:\n\n")
+
+		// CPU
+		sb.WriteString(fmt.Sprintf("🖥️ CPU: %.1f%% (Load: %.2f)\n",
+			newMetrics.CPUPercent, newMetrics.LoadAverage.Min1))
+
+		// Memory
+		totalMemory := newMetrics.MemoryDetails.UsedGB + newMetrics.MemoryDetails.FreeGB + newMetrics.MemoryDetails.AvailableGB
+		sb.WriteString(fmt.Sprintf("💾 Память: %.1f%% (%.1f/%.1f GB)\n",
+			newMetrics.MemoryPercent, newMetrics.MemoryDetails.UsedGB, totalMemory))
+
+		// Disk (show first disk)
+		if len(newMetrics.DiskDetails) > 0 {
+			disk := newMetrics.DiskDetails[0]
+			sb.WriteString(fmt.Sprintf("💿 Диск %s: %.0f%% (%d/%d GB)\n",
+				disk.Path, float64(disk.UsedPercent), int(disk.UsedGB), int(disk.UsedGB+disk.FreeGB)))
+		}
+
+		// Network
+		sb.WriteString(fmt.Sprintf("🌐 Сеть: ↑%.2f ↓%.2f Mbps\n",
+			newMetrics.NetworkDetails.TotalTxMbps, newMetrics.NetworkDetails.TotalRxMbps))
+
+		// Temperature
+		sb.WriteString(fmt.Sprintf("🌡️ Температура: %.1f°C (CPU)\n", newMetrics.Temperatures.CPU))
+
+		// System
+		uptimeHours := newMetrics.UptimeSeconds / 3600
+		sb.WriteString(fmt.Sprintf("⏰ Аптайм: %d ч, Процессы: %d", uptimeHours, newMetrics.ProcessesTotal))
+
+		return sb.String()
+	}
+
+	// Fallback to legacy structure
 	var sb strings.Builder
 	sb.WriteString("📊 Общая сводка метрик:\n\n")
 
@@ -279,4 +391,146 @@ func (s *MetricsServiceImpl) GetCacheStatus() map[string]interface{} {
 	}
 
 	return status
+}
+
+// convertToNewMetrics converts legacy ServerMetrics to NewServerMetrics
+func (s *MetricsServiceImpl) convertToNewMetrics(metrics *domain.ServerMetrics) (*domain.NewServerMetrics, error) {
+	// If metrics already contain new structure, try to extract it
+	// This is a temporary solution - in production, the API should return the new structure directly
+
+	// For now, create a mock conversion based on the legacy structure
+	// In reality, this would come from the new API endpoints
+	newMetrics := &domain.NewServerMetrics{
+		CPUPercent:    metrics.CPU,
+		MemoryPercent: metrics.Memory,
+		DiskPercent:   0, // Will be calculated from disk details
+		LoadAverage: domain.LoadAverageNew{
+			Min1:  metrics.CPUUsage.LoadAverage.Load1min,
+			Min5:  metrics.CPUUsage.LoadAverage.Load5min,
+			Min15: metrics.CPUUsage.LoadAverage.Load15min,
+		},
+		MemoryDetails: domain.NewMemoryDetails{
+			UsedGB:      metrics.MemoryDetails.UsedGB,
+			FreeGB:      metrics.MemoryDetails.FreeGB,
+			AvailableGB: metrics.MemoryDetails.AvailableGB,
+		},
+		NetworkDetails: domain.NewNetworkDetails{
+			TotalRxMbps: metrics.NetworkDetails.TotalRxMbps,
+			TotalTxMbps: metrics.NetworkDetails.TotalTxMbps,
+		},
+		TemperatureCelsius: metrics.TemperatureDetails.CPUTemperature,
+		Temperatures: domain.NewTemperatureDetails{
+			CPU:     metrics.TemperatureDetails.CPUTemperature,
+			GPU:     metrics.TemperatureDetails.GPUTemperature,
+			Highest: metrics.TemperatureDetails.HighestTemperature,
+		},
+		UptimeSeconds:     metrics.SystemDetails.UptimeSeconds,
+		ProcessesTotal:    metrics.SystemDetails.ProcessesTotal,
+		ProcessesRunning:  metrics.SystemDetails.ProcessesRunning,
+		ProcessesSleeping: metrics.SystemDetails.ProcessesSleeping,
+	}
+
+	// Convert disk details
+	if len(metrics.DiskDetails) > 0 {
+		newMetrics.DiskDetails = make([]domain.NewDiskDetails, len(metrics.DiskDetails))
+		for i, disk := range metrics.DiskDetails {
+			newMetrics.DiskDetails[i] = domain.NewDiskDetails{
+				Path:        disk.Path,
+				UsedGB:      disk.UsedGB,
+				FreeGB:      disk.FreeGB,
+				UsedPercent: int(disk.UsedPercent),
+			}
+			if i == 0 {
+				newMetrics.DiskPercent = disk.UsedPercent
+			}
+		}
+	}
+
+	return newMetrics, nil
+}
+
+// convertToLegacyMetrics converts new API response to legacy format
+func (s *MetricsServiceImpl) convertToLegacyMetrics(newResponse *domain.MetricsResponse) *domain.LegacyMetricsResponse {
+	fmt.Printf("=== CONVERTING API RESPONSE ===\n")
+	fmt.Printf("API CPU: %.2f, Memory: %.2f, Temp CPU: %.2f\n",
+		newResponse.Metrics.CPUPercent,
+		newResponse.Metrics.MemoryPercent,
+		newResponse.Metrics.Temperatures.CPU)
+
+	// Debug log what we get from API
+	s.logger.Info("DEBUG: API response before conversion",
+		"cpu_percent", newResponse.Metrics.CPUPercent,
+		"memory_percent", newResponse.Metrics.MemoryPercent,
+		"temp_cpu", newResponse.Metrics.Temperatures.CPU,
+		"temp_gpu", newResponse.Metrics.Temperatures.GPU,
+		"temp_highest", newResponse.Metrics.Temperatures.Highest)
+
+	// Create legacy response from new API structure
+	legacyResponse := &domain.LegacyMetricsResponse{
+		ServerID:  newResponse.ServerID,
+		ServerKey: newResponse.ServerKey,
+		Metrics: domain.ServerMetrics{
+			CPU:    newResponse.Metrics.CPUPercent,
+			Memory: newResponse.Metrics.MemoryPercent,
+			Disk:   newResponse.Metrics.DiskPercent,
+		},
+	}
+
+	// Convert CPU usage details
+	legacyResponse.Metrics.CPUUsage = domain.CPUUsageDetails{
+		UsageTotal: newResponse.Metrics.CPUPercent,
+		LoadAverage: domain.LoadAverage{
+			Load1min:  newResponse.Metrics.LoadAverage.Min1,
+			Load5min:  newResponse.Metrics.LoadAverage.Min5,
+			Load15min: newResponse.Metrics.LoadAverage.Min15,
+		},
+	}
+
+	// Convert memory details
+	legacyResponse.Metrics.MemoryDetails = domain.MemoryDetails{
+		UsedGB:      newResponse.Metrics.MemoryDetails.UsedGB,
+		FreeGB:      newResponse.Metrics.MemoryDetails.FreeGB,
+		AvailableGB: newResponse.Metrics.MemoryDetails.AvailableGB,
+		TotalGB:     newResponse.Metrics.MemoryDetails.UsedGB + newResponse.Metrics.MemoryDetails.FreeGB + newResponse.Metrics.MemoryDetails.AvailableGB,
+		UsedPercent: newResponse.Metrics.MemoryPercent,
+	}
+
+	// Convert disk details
+	legacyResponse.Metrics.DiskDetails = make([]domain.DiskDetails, len(newResponse.Metrics.DiskDetails))
+	for i, disk := range newResponse.Metrics.DiskDetails {
+		legacyResponse.Metrics.DiskDetails[i] = domain.DiskDetails{
+			Path:        disk.Path,
+			UsedGB:      disk.UsedGB,
+			FreeGB:      disk.FreeGB,
+			UsedPercent: float64(disk.UsedPercent),
+			TotalGB:     disk.UsedGB + disk.FreeGB,
+		}
+	}
+
+	// Convert network details
+	legacyResponse.Metrics.Network = newResponse.Metrics.NetworkMbps
+	legacyResponse.Metrics.NetworkDetails = domain.NetworkDetails{
+		TotalRxMbps: newResponse.Metrics.NetworkDetails.TotalRxMbps,
+		TotalTxMbps: newResponse.Metrics.NetworkDetails.TotalTxMbps,
+	}
+
+	// Convert temperature details
+	legacyResponse.Metrics.TemperatureDetails = domain.TemperatureDetails{
+		CPUTemperature:     newResponse.Metrics.Temperatures.CPU,
+		GPUTemperature:     newResponse.Metrics.Temperatures.GPU,
+		SystemTemperature:  newResponse.Metrics.Temperatures.CPU, // Use CPU as system temp fallback
+		HighestTemperature: newResponse.Metrics.Temperatures.Highest,
+	}
+
+	// Convert system details
+	uptimeHours := newResponse.Metrics.UptimeSeconds / 3600
+	legacyResponse.Metrics.SystemDetails = domain.SystemDetails{
+		UptimeSeconds:     newResponse.Metrics.UptimeSeconds,
+		UptimeHuman:       fmt.Sprintf("%dч %dм", uptimeHours, (newResponse.Metrics.UptimeSeconds%3600)/60),
+		ProcessesTotal:    newResponse.Metrics.ProcessesTotal,
+		ProcessesRunning:  newResponse.Metrics.ProcessesRunning,
+		ProcessesSleeping: newResponse.Metrics.ProcessesSleeping,
+	}
+
+	return legacyResponse
 }

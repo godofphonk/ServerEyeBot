@@ -1,0 +1,76 @@
+services:
+  servereye-bot:
+    image: ghcr.io/godofphonk/servereyebot:latest
+    container_name: ServerEyeBot-telegram-bot
+    restart: unless-stopped
+    volumes:
+      - ../internal/services:/app/services_override:ro
+      - ../logs:/app/logs
+      - ./docker/config:/app/config:ro
+      - ./docker/vpn:/app/vpn:ro
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - ENV=${ENV:-development}
+      - API_BASE_URL=${API_BASE_URL:-http://servereye-api:8080}
+      - PORT=${PORT:-8091}
+      - ADMIN_USER_ID=${ADMIN_USER_ID}
+      - DATABASE_URL=postgres://servereyebot:servereye123@bot-postgres:5432/servereyebot?sslmode=disable
+      - AUTO_CONNECT_NETWORK=true
+    networks:
+      - servereye-network
+    depends_on:
+      bot-postgres:
+        condition: service_healthy
+    privileged: true  # Required for VPN
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    command: >
+      sh -c "
+      echo 'Starting VPN setup...' &&
+      apk add --no-cache python3 py3-pip iptables iproute2 &&
+      pip3 install --break-system-packages v2ray-core &&
+      echo 'VPN tools installed, starting VPN...' &&
+      cd /app/vpn &&
+      python3 start-vless.sh &
+      VPN_PID=$$ &&
+      echo 'VPN started with PID: $VPN_PID' &&
+      sleep 5 &&
+      echo 'Starting bot...' &&
+      ./servereye-bot
+      "
+
+  bot-postgres:
+    image: postgres:15-alpine
+    container_name: ServerEyeBot-telegram-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=servereyebot
+      - POSTGRES_USER=servereyebot
+      - POSTGRES_PASSWORD=servereye123
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - servereyebot_postgres_data:/var/lib/postgresql/data
+      - ../migrations:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - servereye-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servereyebot -d servereyebot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  servereyebot_postgres_data:
+    driver: local
+
+networks:
+  servereye-network:
+    driver: bridge

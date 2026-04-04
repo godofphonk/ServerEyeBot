@@ -1,0 +1,11 @@
+{
+  "vless": "vless://uuid@server.com:443?encryption=none&security=tls&type=ws&host=server.com&path=%2F#server-name",
+  "uuid": "your-uuid-here",
+  "server": "your-server.com",
+  "port": 443,
+  "security": "tls",
+  "type": "ws",
+  "host": "your-server.com",
+  "path": "/",
+  "name": "VLESS-Server"
+}

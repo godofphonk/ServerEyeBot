@@ -1,0 +1,7 @@
+# VPN authentication credentials
+# Copy this to vpn.auth and fill in your credentials
+# Format: username
+#         password
+
+your-vpn-username
+your-vpn-password
