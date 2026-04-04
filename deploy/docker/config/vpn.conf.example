@@ -1,0 +1,31 @@
+# Example OpenVPN configuration
+# Copy this to vpn.conf and fill in your VPN details
+
+client
+dev tun
+proto udp
+
+# Your VPN server details
+remote your-vpn-server.com 1194
+
+resolv-retry infinite
+nobind
+
+# User authentication
+auth-user-pass /app/config/vpn.auth
+
+# Security
+remote-cert-tls server
+cipher AES-256-CBC
+auth SHA256
+comp-lzo no
+
+# Logging
+verb 3
+persist-key
+persist-tun
+
+# DNS settings
+script-security 2
+up /app/vpn/dns-up.sh
+down /app/vpn/dns-down.sh

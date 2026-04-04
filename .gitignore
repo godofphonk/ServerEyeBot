@@ -113,3 +113,13 @@ kibana_data/
 *.tmp.*
 deploy_temp/
 deployment_keys/
+
+# VPN configurations (contain sensitive data)
+deploy/docker/config/vless-config.json
+deploy/docker/config/vpn.auth
+deploy/docker/config/vpn.conf
+deploy/config/vless-config.json
+deploy/config/vpn.auth
+deploy/config/vpn.conf
+*.vless.json
+*.vpn.conf
