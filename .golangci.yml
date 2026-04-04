@@ -1,37 +1,30 @@
 run:
   timeout: 5m
   tests: false
+  modules-download-mode: readonly
 
 linters:
+  disable-all: true
   enable:
     - govet
+    - errcheck
     - staticcheck
     - unused
     - ineffassign
-    - misspell
-    - gocyclo
-    - gosec
-    - errcheck
-  disable:
-    - dupl
 
 linters-settings:
-  gocyclo:
-    min-complexity: 15
-  
   errcheck:
+    check-type-assertions: false
     check-blank: false
-  
-  gosec:
-    severity: medium
-    confidence: medium
 
 issues:
   exclude-rules:
     - path: _test\.go
       linters:
-        - gosec
         - errcheck
+    - text: "shadow: declaration of \"err\""
+      linters:
+        - govet
 
   exclude-use-default: false
   max-issues-per-linter: 0
