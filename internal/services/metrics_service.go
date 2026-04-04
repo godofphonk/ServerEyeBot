@@ -195,14 +195,29 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 	sb.WriteString(fmt.Sprintf("- System: %.1f°C\n", metrics.TemperatureDetails.SystemTemperature))
 	sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C\n", metrics.TemperatureDetails.HighestTemperature))
 
-	// Try to get storage temperatures from new API structure
-	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
-		for _, storage := range newMetrics.Temperatures.Storage {
-			deviceName := storage.Device
-			if len(deviceName) > 10 {
-				deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
+	// Try to get fresh storage temperatures from API
+	// We'll make a separate API call to get the latest metrics with storage temps
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Get server key from cache or use a default approach
+	var serverKey string
+	s.cacheMutex.RLock()
+	for key := range s.cache {
+		serverKey = key
+		break // Use first available server key
+	}
+	s.cacheMutex.RUnlock()
+
+	if serverKey != "" {
+		if freshMetrics, err := s.apiClient.GetServerMetrics(ctx, serverKey); err == nil {
+			for _, storage := range freshMetrics.Metrics.Temperatures.Storage {
+				deviceName := storage.Device
+				if len(deviceName) > 10 {
+					deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
+				}
+				sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
 			}
-			sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
 		}
 	}
 
