@@ -109,14 +109,17 @@ func (r *PostgresRepository) AddServerToUser(userID int64, serverID, source stri
 		return err
 	}
 
-	// Then add the relationship
+	// Then add the relationship with correct schema
 	query := `
-INSERT INTO user_servers (user_id, server_id, role)
-VALUES ($1, $2, $3)
-ON CONFLICT (user_id, server_id) DO NOTHING
+INSERT INTO user_servers (user_id, server_id, server_key, is_monitoring, created_at, updated_at)
+VALUES ($1, (SELECT id FROM servers WHERE server_id = $2), $2, true, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+ON CONFLICT (user_id, server_id) DO UPDATE SET
+	server_key = EXCLUDED.server_key,
+	is_monitoring = EXCLUDED.is_monitoring,
+	updated_at = CURRENT_TIMESTAMP
 `
 
-	_, err := r.db.Exec(query, userID, serverID, "viewer")
+	_, err := r.db.Exec(query, userID, serverID)
 	return err
 }
 
