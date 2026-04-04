@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/servereye/servereyebot/internal/app"
@@ -66,6 +68,14 @@ func main() {
 		"environment", cfg.App.Environment,
 		"port", cfg.App.Port)
 
+	// Auto-connect to Docker network in local development
+	if os.Getenv("AUTO_CONNECT_NETWORK") == "true" && cfg.App.Environment == "development" {
+		log.Info("Auto-connecting to Docker network for local development")
+		if err := autoConnectToNetwork(log); err != nil {
+			log.Warn("Failed to auto-connect to network", "error", err)
+		}
+	}
+
 	// Create bot
 	bot, err := app.New(cfg, log)
 	if err != nil {
@@ -96,4 +106,63 @@ func main() {
 	bot.Stop()
 
 	log.Info("ServerEyeBot stopped successfully")
+}
+
+// autoConnectToNetwork attempts to connect this container to the servereye-network network
+func autoConnectToNetwork(log logger.Logger) error {
+	// Get container ID from /proc/self/cgroup
+	containerID, err := getContainerID()
+	if err != nil {
+		return fmt.Errorf("failed to get container ID: %w", err)
+	}
+
+	// Try to connect to servereye-network network
+	cmd := exec.Command("docker", "network", "connect", "servereye-network", containerID)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		// Check if it's already connected or network doesn't exist (not an error in local dev)
+		if len(output) > 0 {
+			outputStr := string(output)
+			if contains(outputStr, "already connected") || contains(outputStr, "No such network") {
+				log.Info("Network connection status", "status", outputStr)
+				return nil
+			}
+		}
+		return fmt.Errorf("failed to connect to network: %w, output: %s", err, string(output))
+	}
+
+	log.Info("Successfully connected to servereye-network network", "container", containerID)
+	return nil
+}
+
+// getContainerID extracts container ID from /proc/self/cgroup
+func getContainerID() (string, error) {
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return "", err
+	}
+
+	// Look for docker container ID in cgroup file
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "docker") {
+			parts := strings.Split(line, "/")
+			for i, part := range parts {
+				if part == "docker" && i+1 < len(parts) {
+					containerID := parts[i+1]
+					// Container ID might be long, take first 12 chars
+					if len(containerID) > 12 {
+						containerID = containerID[:12]
+					}
+					return containerID, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("docker container ID not found in cgroup")
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
