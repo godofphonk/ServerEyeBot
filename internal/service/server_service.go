@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/servereye/servereyebot/pkg/domain"
 )
@@ -68,9 +69,12 @@ func (s *ServerService) AddServerToUser(ctx context.Context, telegramUserID int6
 
 	// Create the user-server relationship
 	userServer := &domain.UserServer{
-		UserID:   user.ID,
-		ServerID: server.ServerID,
-		Role:     role,
+		UserID:       user.ID,
+		ServerID:     server.ID,       // Use server.ID (integer)
+		ServerKey:    server.ServerID, // Store server.ServerID as server_key
+		IsMonitoring: true,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
 	if err := s.userServerRepo.Create(ctx, userServer); err != nil {

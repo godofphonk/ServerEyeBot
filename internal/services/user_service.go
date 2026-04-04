@@ -194,7 +194,7 @@ func (s *UserService) FormatServersList(servers []models.ServerWithDetails) stri
 		}
 
 		result += fmt.Sprintf("\nДобавлен: %s\n", server.AddedAt.Format("02.01.2006 15:04"))
-		result += fmt.Sprintf("Роль: %s\n\n", server.Role)
+		result += fmt.Sprintf("Роль: %s\n\n", server.Source)
 	}
 
 	return result
@@ -212,7 +212,7 @@ func (s *UserService) FormatServersListPlain(servers []models.ServerWithDetails)
 		result += fmt.Sprintf("%d. %s(%s)", i+1, server.Name, server.ID)
 
 		result += fmt.Sprintf("\nДобавлен: %s\n", server.AddedAt.Format("02.01.2006 15:04"))
-		result += fmt.Sprintf("Роль: %s\n\n", server.Role)
+		result += fmt.Sprintf("Роль: %s\n\n", server.Source)
 	}
 
 	return result

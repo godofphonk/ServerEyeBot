@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- Servers table
 CREATE TABLE IF NOT EXISTS servers (
     id SERIAL PRIMARY KEY,
-    server_id VARCHAR(255) UNIQUE NOT NULL, -- e.g., srv_12313
+    server_id VARCHAR(255) UNIQUE NOT NULL, -- e.g., srv_12313 (server_key)
     name VARCHAR(255) NOT NULL,
     description TEXT,
     ip_address INET,
@@ -31,9 +31,11 @@ CREATE TABLE IF NOT EXISTS servers (
 CREATE TABLE IF NOT EXISTS user_servers (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    server_id VARCHAR(255) NOT NULL, -- Store server_key directly, no foreign key
-    role VARCHAR(50) DEFAULT 'viewer', -- owner, admin, viewer
-    added_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE, -- Foreign key to servers.id
+    server_key VARCHAR(255) NOT NULL, -- Store server_key for API calls
+    is_monitoring BOOLEAN DEFAULT true,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, server_id)
 );
 
@@ -42,6 +44,7 @@ CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id);
 CREATE INDEX IF NOT EXISTS idx_user_servers_user_id ON user_servers(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_servers_server_id ON user_servers(server_id);
+CREATE INDEX IF NOT EXISTS idx_user_servers_server_key ON user_servers(server_key);
 
 -- Trigger to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -56,4 +59,7 @@ CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_servers_updated_at BEFORE UPDATE ON servers
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_user_servers_updated_at BEFORE UPDATE ON user_servers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

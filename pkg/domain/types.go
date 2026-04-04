@@ -166,11 +166,13 @@ type Server struct {
 
 // UserServer represents the relationship between users and servers
 type UserServer struct {
-	ID        int       `json:"id"`
-	UserID    int       `json:"user_id"`
-	ServerID  string    `json:"server_id"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           int       `json:"id"`
+	UserID       int       `json:"user_id"`
+	ServerID     int       `json:"server_id"`  // Foreign key to servers.id
+	ServerKey    string    `json:"server_key"` // Server key for API calls
+	IsMonitoring bool      `json:"is_monitoring"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // CallbackQuery represents a callback query from inline keyboard

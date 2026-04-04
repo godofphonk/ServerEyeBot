@@ -267,16 +267,17 @@ func (p *PostgreSQL) ListServersByUserID(ctx context.Context, userID int) ([]*do
 // CreateUserServer creates a new user-server relationship
 func (p *PostgreSQL) CreateUserServer(ctx context.Context, userServer *domain.UserServer) error {
 	query := `
-		INSERT INTO user_servers (user_id, server_id, role, added_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO user_servers (user_id, server_id, server_key, is_monitoring, created_at)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (user_id, server_id) DO UPDATE SET
-			role = EXCLUDED.role,
-			added_at = EXCLUDED.added_at
+			server_key = EXCLUDED.server_key,
+			is_monitoring = EXCLUDED.is_monitoring,
+			updated_at = CURRENT_TIMESTAMP
 		RETURNING id`
 
 	userServer.CreatedAt = time.Now()
 	err := p.db.QueryRowContext(ctx, query,
-		userServer.UserID, userServer.ServerID, userServer.Role, userServer.CreatedAt).
+		userServer.UserID, userServer.ServerID, userServer.ServerKey, true, userServer.CreatedAt).
 		Scan(&userServer.ID)
 
 	if err != nil {
@@ -301,15 +302,17 @@ func (p *PostgreSQL) DeleteUserServer(ctx context.Context, userID, serverID int)
 // GetUserRole retrieves the role of a user for a specific server
 func (p *PostgreSQL) GetUserRole(ctx context.Context, userID, serverID int) (string, error) {
 	query := `
-		SELECT role
+		SELECT 'admin' as role
 		FROM user_servers
-		WHERE user_id = $1 AND server_id = $2`
+		WHERE user_id = $1 AND server_id = $2 AND is_monitoring = true
+		LIMIT 1
+	`
 
 	var role string
 	err := p.db.QueryRowContext(ctx, query, userID, serverID).Scan(&role)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("user-server relationship not found")
+			return "viewer", nil
 		}
 		return "", fmt.Errorf("failed to get user role: %w", err)
 	}
