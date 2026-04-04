@@ -67,7 +67,7 @@ jobs:
         echo "COMMIT_SHA=${{ github.sha }}" >> $GITHUB_ENV
         
     - name: Log in to Container Registry
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -124,7 +124,7 @@ jobs:
     
     steps:
     - name: Deploy to production
-      uses: appleboy/ssh-action@v1.2.4
+      uses: appleboy/ssh-action@v1.2.5
       with:
         host: ${{ secrets.PROD_HOST }}
         username: ${{ secrets.PROD_USER }}

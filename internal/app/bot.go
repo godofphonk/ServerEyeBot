@@ -8,6 +8,7 @@ import (
 
 	"github.com/servereye/servereyebot/internal/api"
 	"github.com/servereye/servereyebot/internal/config"
+	"github.com/servereye/servereyebot/internal/httpserver"
 	"github.com/servereye/servereyebot/internal/logger"
 	"github.com/servereye/servereyebot/internal/models"
 	"github.com/servereye/servereyebot/internal/repository"
@@ -38,6 +39,7 @@ type Bot struct {
 	updateHandler  UpdateHandler
 	commandRouter  CommandRouter
 	postgres       *storage.PostgreSQL
+	httpServer     *httpserver.HttpServer
 }
 
 // UpdateHandler handles telegram updates
@@ -92,6 +94,9 @@ func New(cfg *config.Config, log logger.Logger) (*Bot, error) {
 	// Create update handler
 	updateHandler := NewDefaultUpdateHandlerNew(log, telegramSvc, userService, commandRouter, serverService, metricsService)
 
+	// Create HTTP server for health checks
+	httpServer := httpserver.New(cfg.App.Port, log)
+
 	bot := &Bot{
 		config:         cfg,
 		logger:         log,
@@ -102,6 +107,7 @@ func New(cfg *config.Config, log logger.Logger) (*Bot, error) {
 		updateHandler:  updateHandler,
 		commandRouter:  commandRouter,
 		postgres:       postgres,
+		httpServer:     httpServer,
 	}
 
 	// Register commands
@@ -368,6 +374,12 @@ func (b *Bot) handleAddServerCommand(ctx context.Context, cmd *domain.Command, a
 			}
 		}
 
+		// Add Telegram ID to server identifiers
+		if err := adapter.AddTelegramIdentifierToServer(ctx, int64(user.ID), serverID, fmt.Sprintf("%d", telegramID), user.Username, user.FirstName); err != nil {
+			b.logger.Warn("Failed to add Telegram identifier to server", "error", err, "server_id", serverID, "telegram_id", telegramID)
+			// Don't fail the operation, just log the warning
+		}
+
 		successMsg := fmt.Sprintf("✅ Сервер `%s` успешно добавлен в ваш список!\n\nИспользуйте /servers для просмотра всех ваших серверов.", serverID)
 		return b.telegramSvc.SendMessage(ctx, chatID, successMsg)
 	}
@@ -431,6 +443,12 @@ func (b *Bot) handleRenameCommand(ctx context.Context, cmd *domain.Command, args
 
 // Start starts the bot
 func (b *Bot) Start(ctx context.Context) error {
+	// Start HTTP server for health checks
+	if err := b.httpServer.Start(ctx); err != nil {
+		b.logger.Error("Failed to start HTTP server", "error", err)
+		return err
+	}
+
 	// Set bot commands
 	if err := b.telegramSvc.SetCommands(ctx, b.getCommandList()); err != nil {
 		b.logger.Error("Failed to set bot commands", "error", err)
@@ -443,6 +461,15 @@ func (b *Bot) Start(ctx context.Context) error {
 // Stop stops the bot
 func (b *Bot) Stop() {
 	b.telegramSvc.StopReceivingUpdates()
+
+	// Stop HTTP server
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := b.httpServer.Stop(ctx); err != nil {
+		b.logger.Error("Failed to stop HTTP server", "error", err)
+	}
+
 	if err := b.postgres.Close(); err != nil {
 		b.logger.Error("Failed to close database connection", "error", err)
 	}
@@ -739,7 +766,7 @@ func (h *DefaultUpdateHandler) handleRenameServerCallback(ctx context.Context, c
 		}
 
 		// Send instructions for renaming
-		message := fmt.Sprintf("📝 *Переименование сервера*\n\n")
+		message := "📝 *Переименование сервера*\n\n"
 		message += fmt.Sprintf("Текущий сервер: %s(%s)\n\n", serverToRename.Name, serverToRename.ID)
 		message += "🔄 *Отправьте новое имя для этого сервера в следующем сообщении*\n\n"
 		message += "💡 *Пример:* `Мой рабочий сервер`\n\n"
