@@ -16,12 +16,10 @@ jobs:
     if: github.ref == 'refs/heads/master' || github.event_name == 'pull_request'
     steps:
     - uses: actions/checkout@v6
-    
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
         go-version: '1.24'
-        
     - name: Cache Go modules
       uses: actions/cache@v5
       with:
@@ -29,50 +27,40 @@ jobs:
         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
         restore-keys: |
           ${{ runner.os }}-go-
-          
     - name: Download dependencies
       run: go mod download
-      
     - name: Run tests
       run: go test -v ./...
-      
     - name: Install golangci-lint
       run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.8.0
-      
     - name: Run linter
       run: make lint
-      
     - name: Build
       run: make build
 
   build-and-push:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/production'
-    
     permissions:
       contents: read
       packages: write
-      
     steps:
     - name: Checkout repository
       uses: actions/checkout@v6
       with:
         fetch-depth: 0
         clean: true
-        
     - name: Set BUILD_DATE and VERSION
       run: |
         echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H-%M-%SZ')" >> $GITHUB_ENV
         echo "VERSION=${{ github.sha }}" >> $GITHUB_ENV
         echo "COMMIT_SHA=${{ github.sha }}" >> $GITHUB_ENV
-        
     - name: Log in to Container Registry
       uses: docker/login-action@v4
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-        
     - name: Build and push Docker image
       run: |
         echo "=== Starting Docker build process ==="
@@ -80,34 +68,28 @@ jobs:
         echo "Version: ${{ env.VERSION }}"
         echo "Commit SHA: ${{ env.COMMIT_SHA }}"
         
-        # Create unique tag
         UNIQUE_TAG="production-${{ github.sha }}-$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
         echo "Building with unique tag: $UNIQUE_TAG"
         
-        # Force clean everything
         echo "=== Cleaning git repository ==="
         git clean -fdx
         git reset --hard HEAD
         git fetch --all --prune
         
-        # Create completely isolated build environment
         echo "=== Creating isolated build environment ==="
         BUILD_DIR="/tmp/servereyebot-build-$(date +%s)"
         mkdir -p $BUILD_DIR
         cp -r . $BUILD_DIR/
         cd $BUILD_DIR
         
-        # Show build context
         echo "=== Build context files ==="
         find . -name "*.go" -type f | head -20
         echo "Dockerfile exists: $(test -f Dockerfile && echo 'YES' || echo 'NO')"
         
-        # Force rebuild everything
         echo "=== Building Docker image ==="
         docker system prune -a -f
         docker builder prune -a -f
         
-        # Build with explicit context and no caching
         docker build \
           --no-cache \
           --pull \
@@ -120,7 +102,6 @@ jobs:
           --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
           . 2>&1 | tee build.log
         
-        # Check build result
         if [ ${PIPESTATUS[0]} -ne 0 ]; then
           echo "=== BUILD FAILED ==="
           echo "Build log:"
@@ -131,7 +112,6 @@ jobs:
         echo "=== Build successful ==="
         docker images | grep servereyebot
         
-        # Push all tags
         echo "=== Pushing images ==="
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$UNIQUE_TAG
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:production
@@ -142,7 +122,6 @@ jobs:
   deploy-production:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/production'
-    
     steps:
     - name: Deploy to production
       uses: appleboy/ssh-action@v1.2.5
@@ -155,18 +134,15 @@ jobs:
           echo "Deploy date: $(date -u +'%Y-%m-%dT%H-%M-%SZ')"
           echo "Commit: ${{ github.sha }}"
           
-          # Create directory if it doesn't exist
           sudo mkdir -p /opt/servereyebot
           sudo chown $USER:$USER /opt/servereyebot
           cd /opt/servereyebot
           
-          # Set variables
           UNIQUE_TAG="production-${{ github.sha }}-$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
           IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
           
           echo "=== Deploying image: $IMAGE_NAME:$UNIQUE_TAG ==="
           
-          # Stop services gracefully (preserve data)
           echo "=== Stopping services ==="
           docker-compose down --remove-orphans || true
           docker stop ServerEyeBot-TelegramBot || true
@@ -174,11 +150,9 @@ jobs:
           docker stop ServerEyeBot-PostgreSQL || true
           docker rm ServerEyeBot-PostgreSQL || true
           
-          # Clean up Docker images only (preserve volumes)
           echo "=== Cleaning up Docker images ==="
           docker system prune -a -f
           
-          # Pull fresh image
           echo "=== Pulling new image ==="
           docker pull $IMAGE_NAME:production
           docker pull $IMAGE_NAME:latest
@@ -186,11 +160,9 @@ jobs:
           echo "=== Pulled images ==="
           docker images | grep servereyebot
           
-          # Create external volumes for data persistence
           echo "=== Creating external volumes ==="
           docker volume create servereyebot_postgres_data || true
           
-          # Create backup before deployment
           echo "=== Creating backup before deployment ==="
           mkdir -p /opt/servereyebot/backups
           if docker volume inspect servereyebot_postgres_data >/dev/null 2>&1; then
@@ -198,7 +170,6 @@ jobs:
             echo "✅ PostgreSQL backup created"
           fi
           
-          # Create docker-compose.yml
           cat > docker-compose.yml << 'COMPOSE_EOF'
           services:
             servereyebot:
@@ -228,7 +199,6 @@ jobs:
                 timeout: 10s
                 retries: 3
                 start_period: 40s
-
             postgres:
               image: postgres:15-alpine
               container_name: ServerEyeBot-PostgreSQL
@@ -248,57 +218,46 @@ jobs:
                 interval: 10s
                 timeout: 5s
                 retries: 5
-
           volumes:
             servereyebot_postgres_data:
               external: true
-
           networks:
             servereyebot-network:
               driver: bridge
           COMPOSE_EOF
-
+          
           echo "=== Docker compose file created ==="
           
-          # Start database services
           echo "=== Starting database services ==="
           docker-compose up -d postgres
           echo "Waiting for database to start..."
           sleep 15
           
-          # Check database health
           echo "=== Checking database health ==="
           docker-compose ps postgres
           docker logs ServerEyeBot-PostgreSQL --tail 10
           
-          # Copy migration files from repo
-          echo "=== Copying migration files ==="
+          echo "=== Creating migration files ==="
           mkdir -p migrations
           
-          # Create migration files directly (without inline SQL)
-          cat > migrations/001_initial_schema.sql << 'EOF'
-CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE NOT NULL, username VARCHAR(255), first_name VARCHAR(255), last_name VARCHAR(255), is_active BOOLEAN DEFAULT true, is_admin BOOLEAN DEFAULT false, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS servers (id SERIAL PRIMARY KEY, server_id VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, description TEXT, ip_address INET, port INTEGER DEFAULT 8080, is_active BOOLEAN DEFAULT true, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS user_servers (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE, server_key VARCHAR(255) NOT NULL, is_monitoring BOOLEAN DEFAULT true, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, server_id));
-CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
-CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id);
-CREATE INDEX IF NOT EXISTS idx_user_servers_user_id ON user_servers(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_servers_server_id ON user_servers(server_id);
-CREATE INDEX IF NOT EXISTS idx_user_servers_server_key ON user_servers(server_key);
-CREATE OR REPLACE FUNCTION update_updated_at_column() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = CURRENT_TIMESTAMP; RETURN NEW; END; $$ language 'plpgsql';
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_servers_updated_at BEFORE UPDATE ON servers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER update_user_servers_updated_at BEFORE UPDATE ON user_servers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-EOF
+          echo 'CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE NOT NULL, username VARCHAR(255), first_name VARCHAR(255), last_name VARCHAR(255), is_active BOOLEAN DEFAULT true, is_admin BOOLEAN DEFAULT false, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);' > migrations/001_initial_schema.sql
+          echo 'CREATE TABLE IF NOT EXISTS servers (id SERIAL PRIMARY KEY, server_id VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, description TEXT, ip_address INET, port INTEGER DEFAULT 8080, is_active BOOLEAN DEFAULT true, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);' >> migrations/001_initial_schema.sql
+          echo 'CREATE TABLE IF NOT EXISTS user_servers (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE, server_key VARCHAR(255) NOT NULL, is_monitoring BOOLEAN DEFAULT true, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, server_id));' >> migrations/001_initial_schema.sql
+          echo 'CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);' >> migrations/001_initial_schema.sql
+          echo 'CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id);' >> migrations/001_initial_schema.sql
+          echo 'CREATE INDEX IF NOT EXISTS idx_user_servers_user_id ON user_servers(user_id);' >> migrations/001_initial_schema.sql
+          echo 'CREATE INDEX IF NOT EXISTS idx_user_servers_server_id ON user_servers(server_id);' >> migrations/001_initial_schema.sql
+          echo 'CREATE INDEX IF NOT EXISTS idx_user_servers_server_key ON user_servers(server_key);' >> migrations/001_initial_schema.sql
+          echo 'CREATE OR REPLACE FUNCTION update_updated_at_column() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = CURRENT_TIMESTAMP; RETURN NEW; END; $$ language plpgsql;' >> migrations/001_initial_schema.sql
+          echo 'CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();' >> migrations/001_initial_schema.sql
+          echo 'CREATE TRIGGER update_servers_updated_at BEFORE UPDATE ON servers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();' >> migrations/001_initial_schema.sql
+          echo 'CREATE TRIGGER update_user_servers_updated_at BEFORE UPDATE ON user_servers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();' >> migrations/001_initial_schema.sql
           
-          cat > migrations/002_add_server_name_update.sql << 'EOF'
-CREATE OR REPLACE FUNCTION update_server_name(p_user_id INTEGER, p_server_id INTEGER, p_new_name VARCHAR(255)) RETURNS BOOLEAN AS $$ DECLARE server_exists BOOLEAN; BEGIN SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = p_user_id AND server_id = p_server_id) INTO server_exists; IF NOT server_exists THEN RETURN FALSE; END IF; UPDATE servers SET name = p_new_name WHERE id = p_server_id; RETURN FOUND; END; $$ LANGUAGE plpgsql;
-EOF
+          echo 'CREATE OR REPLACE FUNCTION update_server_name(p_user_id INTEGER, p_server_id INTEGER, p_new_name VARCHAR(255)) RETURNS BOOLEAN AS $$ DECLARE server_exists BOOLEAN; BEGIN SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = p_user_id AND server_id = p_server_id) INTO server_exists; IF NOT server_exists THEN RETURN FALSE; END IF; UPDATE servers SET name = p_new_name WHERE id = p_server_id; RETURN FOUND; END; $$ LANGUAGE plpgsql;' > migrations/002_add_server_name_update.sql
           
           echo "Migration files created:"
           ls -la migrations/
           
-          # Apply migrations
           echo "=== Applying database migrations ==="
           echo "Applying migration 001:"
           docker exec -i ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot < migrations/001_initial_schema.sql
@@ -306,30 +265,24 @@ EOF
           echo "Applying migration 002:"
           docker exec -i ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot < migrations/002_add_server_name_update.sql
           
-          # Verify migrations
           echo "=== Verifying migrations ==="
           docker exec ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot -c "\\dt"
-          docker exec ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';"
+          docker exec ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = public;"
           
-          # Start main application
           echo "=== Starting main application ==="
           docker-compose up -d servereyebot
           
-          # Wait for services
           echo "=== Waiting for services to start ==="
           sleep 60
           
-          # Health check
           echo "=== Checking service health ==="
           docker-compose ps
           echo "=== Bot logs ==="
           docker logs ServerEyeBot-TelegramBot --tail 20
           
-          # Test database
           echo "=== Testing database ==="
-          docker exec ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot -c "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name;"
+          docker exec ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot -c "SELECT table_name FROM information_schema.tables WHERE table_schema = public ORDER BY table_name;"
           
-          # Final cleanup
           docker image prune -f
           echo "✅ Production deployment completed successfully!"
           echo "=== Deployment finished at: $(date -u +'%Y-%m-%dT%H-%M-%SZ') ==="
