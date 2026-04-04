@@ -271,94 +271,35 @@ jobs:
           docker-compose ps postgres
           docker logs ServerEyeBot-PostgreSQL --tail 10
           
-          # Apply migrations
-          echo "=== Applying database migrations ==="
-          
-          # Create migration files
+          # Copy migration files from repo
+          echo "=== Copying migration files ==="
           mkdir -p migrations
           
-          # Migration 001
+          # Create migration files directly (without inline SQL)
           cat > migrations/001_initial_schema.sql << 'EOF'
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    telegram_id BIGINT UNIQUE NOT NULL,
-    username VARCHAR(255),
-    first_name VARCHAR(255),
-    last_name VARCHAR(255),
-    is_active BOOLEAN DEFAULT true,
-    is_admin BOOLEAN DEFAULT false,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS servers (
-    id SERIAL PRIMARY KEY,
-    server_id VARCHAR(255) UNIQUE NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    ip_address INET,
-    port INTEGER DEFAULT 8080,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS user_servers (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
-    server_key VARCHAR(255) NOT NULL,
-    is_monitoring BOOLEAN DEFAULT true,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, server_id)
-);
-
+CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, telegram_id BIGINT UNIQUE NOT NULL, username VARCHAR(255), first_name VARCHAR(255), last_name VARCHAR(255), is_active BOOLEAN DEFAULT true, is_admin BOOLEAN DEFAULT false, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS servers (id SERIAL PRIMARY KEY, server_id VARCHAR(255) UNIQUE NOT NULL, name VARCHAR(255) NOT NULL, description TEXT, ip_address INET, port INTEGER DEFAULT 8080, is_active BOOLEAN DEFAULT true, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS user_servers (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, server_id INTEGER NOT NULL REFERENCES servers(id) ON DELETE CASCADE, server_key VARCHAR(255) NOT NULL, is_monitoring BOOLEAN DEFAULT true, created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, UNIQUE(user_id, server_id));
 CREATE INDEX IF NOT EXISTS idx_users_telegram_id ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS idx_servers_server_id ON servers(server_id);
 CREATE INDEX IF NOT EXISTS idx_user_servers_user_id ON user_servers(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_servers_server_id ON user_servers(server_id);
 CREATE INDEX IF NOT EXISTS idx_user_servers_server_key ON user_servers(server_key);
-
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
+CREATE OR REPLACE FUNCTION update_updated_at_column() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at = CURRENT_TIMESTAMP; RETURN NEW; END; $$ language 'plpgsql';
 CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_servers_updated_at BEFORE UPDATE ON servers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_user_servers_updated_at BEFORE UPDATE ON user_servers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 EOF
-
-          # Migration 002
+          
           cat > migrations/002_add_server_name_update.sql << 'EOF'
-CREATE OR REPLACE FUNCTION update_server_name(
-    p_user_id INTEGER,
-    p_server_id INTEGER,
-    p_new_name VARCHAR(255)
-) RETURNS BOOLEAN AS $$
-DECLARE
-    server_exists BOOLEAN;
-BEGIN
-    SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = p_user_id AND server_id = p_server_id) INTO server_exists;
-    
-    IF NOT server_exists THEN
-        RETURN FALSE;
-    END IF;
-    
-    UPDATE servers SET name = p_new_name WHERE id = p_server_id;
-    RETURN FOUND;
-END;
-$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION update_server_name(p_user_id INTEGER, p_server_id INTEGER, p_new_name VARCHAR(255)) RETURNS BOOLEAN AS $$ DECLARE server_exists BOOLEAN; BEGIN SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = p_user_id AND server_id = p_server_id) INTO server_exists; IF NOT server_exists THEN RETURN FALSE; END IF; UPDATE servers SET name = p_new_name WHERE id = p_server_id; RETURN FOUND; END; $$ LANGUAGE plpgsql;
 EOF
-
+          
           echo "Migration files created:"
           ls -la migrations/
           
           # Apply migrations
+          echo "=== Applying database migrations ==="
           echo "Applying migration 001:"
           docker exec -i ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot < migrations/001_initial_schema.sql
           
