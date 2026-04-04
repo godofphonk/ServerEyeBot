@@ -37,21 +37,10 @@ func NewMetricsService(apiClient *api.Client, logger Logger) *MetricsServiceImpl
 	}
 }
 
-// GetServerMetrics retrieves server metrics with caching
+// GetServerMetrics retrieves server metrics directly from API (no cache)
 func (s *MetricsServiceImpl) GetServerMetrics(serverKey string) (*domain.LegacyMetricsResponse, error) {
-	s.cacheMutex.RLock()
-
-	// Check cache first
-	if cached, exists := s.cache[serverKey]; exists {
-		if time.Now().Before(cached.ExpiresAt) {
-			s.cacheMutex.RUnlock()
-			s.logger.Debug("Metrics retrieved from cache", "server_key", serverKey)
-			return cached.Metrics, nil
-		}
-		// Cache expired, remove it
-		delete(s.cache, serverKey)
-	}
-	s.cacheMutex.RUnlock()
+	fmt.Printf("=== GETTING FRESH METRICS FROM API ===\n")
+	s.logger.Info("Getting fresh server metrics from API", "server_key", serverKey)
 
 	// Fetch from API
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -66,16 +55,8 @@ func (s *MetricsServiceImpl) GetServerMetrics(serverKey string) (*domain.LegacyM
 	// Convert new API structure to legacy format for compatibility
 	legacyMetrics := s.convertToLegacyMetrics(metrics)
 
-	// Cache the result
-	s.cacheMutex.Lock()
-	s.cache[serverKey] = &domain.MetricsCache{
-		ServerKey: serverKey,
-		Metrics:   legacyMetrics,
-		ExpiresAt: time.Now().Add(60 * time.Second), // 60 seconds cache
-	}
-	s.cacheMutex.Unlock()
-
-	s.logger.Info("Server metrics cached", "server_key", serverKey)
+	fmt.Printf("=== METRICS CONVERTED SUCCESSFULLY ===\n")
+	s.logger.Info("Server metrics retrieved and converted successfully", "server_key", serverKey)
 	return legacyMetrics, nil
 }
 
@@ -187,6 +168,13 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 	if metrics == nil {
 		return "❌ Метрики температуры недоступны"
 	}
+
+	// Debug log to see what we actually have
+	s.logger.Info("DEBUG: Temperature values in legacy metrics",
+		"cpu", metrics.TemperatureDetails.CPUTemperature,
+		"gpu", metrics.TemperatureDetails.GPUTemperature,
+		"system", metrics.TemperatureDetails.SystemTemperature,
+		"highest", metrics.TemperatureDetails.HighestTemperature)
 
 	var sb strings.Builder
 	sb.WriteString("🌡️ Температура:\n")
@@ -463,6 +451,20 @@ func (s *MetricsServiceImpl) convertToNewMetrics(metrics *domain.ServerMetrics) 
 
 // convertToLegacyMetrics converts new API response to legacy format
 func (s *MetricsServiceImpl) convertToLegacyMetrics(newResponse *domain.MetricsResponse) *domain.LegacyMetricsResponse {
+	fmt.Printf("=== CONVERTING API RESPONSE ===\n")
+	fmt.Printf("API CPU: %.2f, Memory: %.2f, Temp CPU: %.2f\n",
+		newResponse.Metrics.CPUPercent,
+		newResponse.Metrics.MemoryPercent,
+		newResponse.Metrics.Temperatures.CPU)
+
+	// Debug log what we get from API
+	s.logger.Info("DEBUG: API response before conversion",
+		"cpu_percent", newResponse.Metrics.CPUPercent,
+		"memory_percent", newResponse.Metrics.MemoryPercent,
+		"temp_cpu", newResponse.Metrics.Temperatures.CPU,
+		"temp_gpu", newResponse.Metrics.Temperatures.GPU,
+		"temp_highest", newResponse.Metrics.Temperatures.Highest)
+
 	// Create legacy response from new API structure
 	legacyResponse := &domain.LegacyMetricsResponse{
 		ServerID:  newResponse.ServerID,

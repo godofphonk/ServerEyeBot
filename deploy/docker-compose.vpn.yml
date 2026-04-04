@@ -3,6 +3,11 @@ services:
     image: ghcr.io/godofphonk/servereyebot:latest
     container_name: ServerEyeBot-telegram-bot
     restart: unless-stopped
+    volumes:
+      - ../internal/services:/app/services_override:ro
+      - ../logs:/app/logs
+      - ./docker/config:/app/config:ro
+      - ./docker/vpn:/app/vpn:ro
     environment:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - LOG_LEVEL=${LOG_LEVEL:-info}
@@ -12,10 +17,6 @@ services:
       - ADMIN_USER_ID=${ADMIN_USER_ID}
       - DATABASE_URL=postgres://servereyebot:servereye123@bot-postgres:5432/servereyebot?sslmode=disable
       - AUTO_CONNECT_NETWORK=true
-    volumes:
-      - ../logs:/app/logs
-      - ./docker/config:/app/config:ro
-      - ./docker/vpn:/app/vpn:ro
     networks:
       - servereye-network
     depends_on:
