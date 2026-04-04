@@ -193,7 +193,18 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 	sb.WriteString(fmt.Sprintf("- CPU: %.1f°C\n", metrics.TemperatureDetails.CPUTemperature))
 	sb.WriteString(fmt.Sprintf("- GPU: %.1f°C\n", metrics.TemperatureDetails.GPUTemperature))
 	sb.WriteString(fmt.Sprintf("- System: %.1f°C\n", metrics.TemperatureDetails.SystemTemperature))
-	sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C", metrics.TemperatureDetails.HighestTemperature))
+	sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C\n", metrics.TemperatureDetails.HighestTemperature))
+
+	// Try to get storage temperatures from new API structure
+	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
+		for _, storage := range newMetrics.Temperatures.Storage {
+			deviceName := storage.Device
+			if len(deviceName) > 10 {
+				deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
+			}
+			sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
+		}
+	}
 
 	return sb.String()
 }
