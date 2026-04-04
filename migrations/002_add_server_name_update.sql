@@ -39,7 +39,7 @@ $$ LANGUAGE plpgsql;
 -- Create function to get server with user permissions
 CREATE OR REPLACE FUNCTION get_user_server(
     p_user_id INTEGER,
-    p_server_id VARCHAR(255
+    p_server_id VARCHAR(255)
 ) RETURNS TABLE (
     server_id VARCHAR(255),
     name VARCHAR(255),

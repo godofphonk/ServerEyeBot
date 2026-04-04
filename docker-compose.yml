@@ -1,9 +1,7 @@
 services:
   servereye-bot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: ServerEyeWeb-telegram-bot
+    image: ghcr.io/godofphonk/servereyebot:latest
+    container_name: ServerEyeBot-telegram-bot
     restart: unless-stopped
     environment:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
@@ -12,7 +10,7 @@ services:
       - API_BASE_URL=${API_BASE_URL:-http://servereye-api:8080}
       - PORT=${PORT:-8091}
       - ADMIN_USER_ID=${ADMIN_USER_ID}
-      - DATABASE_URL=${DATABASE_URL:-postgres://servereyebot:servereye123@bot-postgres:5432/servereyebot?sslmode=disable}
+      - DATABASE_URL=postgres://servereyebot:servereye123@bot-postgres:5432/servereyebot?sslmode=disable
     ports:
       - "8092:8091"
     volumes:
@@ -31,7 +29,7 @@ services:
 
   bot-postgres:
     image: postgres:15-alpine
-    container_name: ServerEyeWeb-telegram-postgres
+    container_name: ServerEyeBot-telegram-postgres
     restart: unless-stopped
     environment:
       - POSTGRES_DB=servereyebot
