@@ -258,31 +258,19 @@ func (s *MetricsServiceImpl) FormatSystem(metrics *domain.ServerMetrics) string 
 	var sb strings.Builder
 	sb.WriteString("🖥️ Система:\n")
 
-	// Use available system details from unified API
-	hostname := metrics.SystemDetails.Hostname
-	if hostname == "" {
-		hostname = "Недоступно"
+	// Try to get static info for hostname, OS, etc.
+	if staticInfo := s.getStaticInfo(); staticInfo != nil {
+		sb.WriteString(fmt.Sprintf("- Хостнейм: %s\n", staticInfo.ServerInfo.Hostname))
+		sb.WriteString(fmt.Sprintf("- ОС: %s %s\n", staticInfo.ServerInfo.OS, staticInfo.ServerInfo.OSVersion))
+		sb.WriteString(fmt.Sprintf("- Ядро: %s\n", staticInfo.ServerInfo.Kernel))
+		sb.WriteString(fmt.Sprintf("- Архитектура: %s\n", staticInfo.ServerInfo.Architecture))
+	} else {
+		sb.WriteString("- Хостнейм: Недоступно\n")
+		sb.WriteString("- ОС: Недоступно\n")
+		sb.WriteString("- Ядро: Недоступно\n")
+		sb.WriteString("- Архитектура: Недоступно\n")
 	}
 
-	os := metrics.SystemDetails.OS
-	if os == "" {
-		os = "Недоступно"
-	}
-
-	kernel := metrics.SystemDetails.Kernel
-	if kernel == "" {
-		kernel = "Недоступно"
-	}
-
-	arch := metrics.SystemDetails.Architecture
-	if arch == "" {
-		arch = "Недоступно"
-	}
-
-	sb.WriteString(fmt.Sprintf("- Хостнейм: %s\n", hostname))
-	sb.WriteString(fmt.Sprintf("- ОС: %s\n", os))
-	sb.WriteString(fmt.Sprintf("- Ядро: %s\n", kernel))
-	sb.WriteString(fmt.Sprintf("- Архитектура: %s\n", arch))
 	sb.WriteString(fmt.Sprintf("- Аптайм: %s\n", metrics.SystemDetails.UptimeHuman))
 	sb.WriteString(fmt.Sprintf("- Процессы: %d (%d running)",
 		metrics.SystemDetails.ProcessesTotal,
