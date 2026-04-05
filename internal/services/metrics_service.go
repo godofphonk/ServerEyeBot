@@ -174,7 +174,8 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 		"cpu", metrics.TemperatureDetails.CPUTemperature,
 		"gpu", metrics.TemperatureDetails.GPUTemperature,
 		"system", metrics.TemperatureDetails.SystemTemperature,
-		"highest", metrics.TemperatureDetails.HighestTemperature)
+		"highest", metrics.TemperatureDetails.HighestTemperature,
+		"storage_count", len(metrics.TemperatureDetails.StorageTemperatures))
 
 	var sb strings.Builder
 	sb.WriteString("🌡️ Температура:\n")
@@ -183,17 +184,13 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 	sb.WriteString(fmt.Sprintf("- System: %.1f°C\n", metrics.TemperatureDetails.SystemTemperature))
 	sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C\n", metrics.TemperatureDetails.HighestTemperature))
 
-	// Get storage temperatures from the current metrics by converting back to new format
-	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
-		for _, storage := range newMetrics.Temperatures.Storage {
-			deviceName := storage.Device
-			if len(deviceName) > 10 {
-				deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
-			}
-			sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
+	// Add storage temperatures from legacy metrics
+	for _, storage := range metrics.TemperatureDetails.StorageTemperatures {
+		deviceName := storage.Device
+		if len(deviceName) > 10 {
+			deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
 		}
-	} else {
-		s.logger.Error("Failed to convert metrics for storage temperatures", "error", err)
+		sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
 	}
 
 	return sb.String()
@@ -555,10 +552,11 @@ func (s *MetricsServiceImpl) convertToLegacyMetrics(newResponse *domain.MetricsR
 
 	// Convert temperature details
 	legacyResponse.Metrics.TemperatureDetails = domain.TemperatureDetails{
-		CPUTemperature:     newResponse.Metrics.Metrics.Temperatures.CPU,
-		GPUTemperature:     newResponse.Metrics.Metrics.Temperatures.GPU,
-		SystemTemperature:  newResponse.Metrics.Metrics.Temperatures.CPU, // Use CPU as system temp fallback
-		HighestTemperature: newResponse.Metrics.Metrics.Temperatures.Highest,
+		CPUTemperature:      newResponse.Metrics.Metrics.Temperatures.CPU,
+		GPUTemperature:      newResponse.Metrics.Metrics.Temperatures.GPU,
+		SystemTemperature:   newResponse.Metrics.Metrics.Temperatures.CPU, // Use CPU as system temp fallback
+		HighestTemperature:  newResponse.Metrics.Metrics.Temperatures.Highest,
+		StorageTemperatures: newResponse.Metrics.Metrics.Temperatures.Storage,
 	}
 
 	// Log storage temperatures for debugging

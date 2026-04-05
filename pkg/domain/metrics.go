@@ -250,11 +250,12 @@ type NetworkInterfaceExtended struct {
 
 // TemperatureDetails represents temperature information
 type TemperatureDetails struct {
-	CPUTemperature     float64 `json:"cpu_temperature"`
-	GPUTemperature     float64 `json:"gpu_temperature"`
-	SystemTemperature  float64 `json:"system_temperature"`
-	HighestTemperature float64 `json:"highest_temperature"`
-	TemperatureUnit    string  `json:"temperature_unit"`
+	CPUTemperature      float64              `json:"cpu_temperature"`
+	GPUTemperature      float64              `json:"gpu_temperature"`
+	SystemTemperature   float64              `json:"system_temperature"`
+	HighestTemperature  float64              `json:"highest_temperature"`
+	TemperatureUnit     string               `json:"temperature_unit"`
+	StorageTemperatures []StorageTemperature `json:"storage_temperatures"`
 }
 
 // SystemDetails represents detailed system information
