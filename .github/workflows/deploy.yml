@@ -154,13 +154,14 @@ jobs:
           docker system prune -a -f
           
           echo "=== Pulling new image ==="
-          echo "Pulling image: ghcr.io/godofphonk/servereyebot:production-${{ github.sha }}"
-          docker pull ghcr.io/godofphonk/servereyebot:production-${{ github.sha }}
+          UNIQUE_TAG="production-${{ github.sha }}-$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          echo "Pulling image: ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG"
+          docker pull ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG
           docker pull ghcr.io/godofphonk/servereyebot:latest
           
           echo "=== Tagging latest ==="
-          docker tag ghcr.io/godofphonk/servereyebot:production-${{ github.sha }} ghcr.io/godofphonk/servereyebot:production
-          docker tag ghcr.io/godofphonk/servereyebot:production-${{ github.sha }} ghcr.io/godofphonk/servereyebot:latest
+          docker tag ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG ghcr.io/godofphonk/servereyebot:production
+          docker tag ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG ghcr.io/godofphonk/servereyebot:latest
           
           echo "=== Pulled images ==="
           docker images | grep servereyebot
@@ -178,7 +179,7 @@ jobs:
           cat > docker-compose.yml << 'COMPOSE_EOF'
           services:
             servereyebot:
-              image: ghcr.io/godofphonk/servereyebot:production-${{ github.sha }}
+              image: ghcr.io/godofphonk/servereyebot:production
               container_name: ServerEyeBot-TelegramBot
               restart: unless-stopped
               environment:
