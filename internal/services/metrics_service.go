@@ -251,6 +251,7 @@ func (s *MetricsServiceImpl) FormatNetwork(metrics *domain.ServerMetrics) string
 
 // FormatSystem formats system information for display
 func (s *MetricsServiceImpl) FormatSystem(metrics *domain.ServerMetrics) string {
+	fmt.Printf("=== FORMAT SYSTEM CALLED ===\n")
 	if metrics == nil {
 		return "❌ Системная информация недоступна"
 	}
@@ -281,6 +282,7 @@ func (s *MetricsServiceImpl) FormatSystem(metrics *domain.ServerMetrics) string 
 		metrics.SystemDetails.ProcessesTotal,
 		metrics.SystemDetails.ProcessesRunning))
 
+	fmt.Printf("=== FORMAT SYSTEM RESULT ===\n%s\n", sb.String())
 	return sb.String()
 }
 
