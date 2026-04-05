@@ -156,12 +156,13 @@ jobs:
           echo "=== Pulling new image ==="
           UNIQUE_TAG="production-${{ github.sha }}-$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
           echo "Pulling image: ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG"
-          docker pull ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG
+          docker pull ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG || docker pull ghcr.io/godofphonk/servereyebot:production
           docker pull ghcr.io/godofphonk/servereyebot:latest
           
           echo "=== Tagging latest ==="
-          docker tag ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG ghcr.io/godofphonk/servereyebot:production
-          docker tag ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG ghcr.io/godofphonk/servereyebot:latest
+          docker tag ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG ghcr.io/godofphonk/servereyebot:production || true
+          docker tag ghcr.io/godofphonk/servereyebot:$UNIQUE_TAG ghcr.io/godofphonk/servereyebot:latest || true
+          docker tag ghcr.io/godofphonk/servereyebot:production ghcr.io/godofphonk/servereyebot:latest || true
           
           echo "=== Pulled images ==="
           docker images | grep servereyebot
@@ -276,7 +277,21 @@ jobs:
           docker exec ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = public;"
           
           echo "=== Starting main application ==="
+          docker-compose down servereyebot || true
           docker-compose up -d servereyebot
+          
+          echo "=== Force pull latest image if needed ==="
+          docker-compose pull servereyebot
+          docker-compose up -d servereyebot
+          
+          echo "=== Verifying correct image is running ==="
+          RUNNING_IMAGE=$(docker inspect ServerEyeBot-TelegramBot --format='{{.Config.Image}}')
+          echo "Running image: $RUNNING_IMAGE"
+          if [[ "$RUNNING_IMAGE" != *"production"* ]]; then
+            echo "❌ Wrong image detected, forcing update..."
+            docker rmi ServerEyeBot-TelegramBot || true
+            docker-compose up -d servereyebot
+          fi
           
           echo "=== Waiting for services to start ==="
           sleep 60
@@ -288,6 +303,12 @@ jobs:
           
           echo "=== Testing database ==="
           docker exec ServerEyeBot-PostgreSQL psql -U servereyebot -d servereyebot -c "SELECT table_name FROM information_schema.tables WHERE table_schema = public ORDER BY table_name;"
+          
+          echo "=== Final verification ==="
+          echo "Current commit: ${{ github.sha }}"
+          echo "Deployed at: $(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          docker images | grep servereyebot | head -3
+          docker ps | grep ServerEyeBot
           
           docker image prune -f
           echo "✅ Production deployment completed successfully!"
