@@ -183,30 +183,17 @@ func (s *MetricsServiceImpl) FormatTemperature(metrics *domain.ServerMetrics) st
 	sb.WriteString(fmt.Sprintf("- System: %.1f°C\n", metrics.TemperatureDetails.SystemTemperature))
 	sb.WriteString(fmt.Sprintf("- Максимальная: %.1f°C\n", metrics.TemperatureDetails.HighestTemperature))
 
-	// Try to get fresh storage temperatures from API
-	// We'll make a separate API call to get the latest metrics with storage temps
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Get server key from cache or use a default approach
-	var serverKey string
-	s.cacheMutex.RLock()
-	for key := range s.cache {
-		serverKey = key
-		break // Use first available server key
-	}
-	s.cacheMutex.RUnlock()
-
-	if serverKey != "" {
-		if freshMetrics, err := s.apiClient.GetServerMetrics(ctx, serverKey); err == nil {
-			for _, storage := range freshMetrics.Metrics.Metrics.Temperatures.Storage {
-				deviceName := storage.Device
-				if len(deviceName) > 10 {
-					deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
-				}
-				sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
+	// Get storage temperatures from the current metrics by converting back to new format
+	if newMetrics, err := s.convertToNewMetrics(metrics); err == nil {
+		for _, storage := range newMetrics.Temperatures.Storage {
+			deviceName := storage.Device
+			if len(deviceName) > 10 {
+				deviceName = deviceName[len(deviceName)-10:] // Show last 10 chars
 			}
+			sb.WriteString(fmt.Sprintf("- Накопитель %s: %.1f°C\n", deviceName, storage.Temperature))
 		}
+	} else {
+		s.logger.Error("Failed to convert metrics for storage temperatures", "error", err)
 	}
 
 	return sb.String()
@@ -274,19 +261,31 @@ func (s *MetricsServiceImpl) FormatSystem(metrics *domain.ServerMetrics) string 
 	var sb strings.Builder
 	sb.WriteString("🖥️ Система:\n")
 
-	// Try to get static info for hostname, OS, etc.
-	if staticInfo := s.getStaticInfo(); staticInfo != nil {
-		sb.WriteString(fmt.Sprintf("- Хостнейм: %s\n", staticInfo.ServerInfo.Hostname))
-		sb.WriteString(fmt.Sprintf("- ОС: %s\n", staticInfo.ServerInfo.OS))
-		sb.WriteString(fmt.Sprintf("- Ядро: %s\n", staticInfo.ServerInfo.Kernel))
-		sb.WriteString(fmt.Sprintf("- Архитектура: %s\n", staticInfo.ServerInfo.Architecture))
-	} else {
-		sb.WriteString("- Хостнейм: \n")
-		sb.WriteString("- ОС: \n")
-		sb.WriteString("- Ядро: \n")
-		sb.WriteString("- Архитектура: \n")
+	// Use available system details from unified API
+	hostname := metrics.SystemDetails.Hostname
+	if hostname == "" {
+		hostname = "Недоступно"
 	}
 
+	os := metrics.SystemDetails.OS
+	if os == "" {
+		os = "Недоступно"
+	}
+
+	kernel := metrics.SystemDetails.Kernel
+	if kernel == "" {
+		kernel = "Недоступно"
+	}
+
+	arch := metrics.SystemDetails.Architecture
+	if arch == "" {
+		arch = "Недоступно"
+	}
+
+	sb.WriteString(fmt.Sprintf("- Хостнейм: %s\n", hostname))
+	sb.WriteString(fmt.Sprintf("- ОС: %s\n", os))
+	sb.WriteString(fmt.Sprintf("- Ядро: %s\n", kernel))
+	sb.WriteString(fmt.Sprintf("- Архитектура: %s\n", arch))
 	sb.WriteString(fmt.Sprintf("- Аптайм: %s\n", metrics.SystemDetails.UptimeHuman))
 	sb.WriteString(fmt.Sprintf("- Процессы: %d (%d running)",
 		metrics.SystemDetails.ProcessesTotal,
