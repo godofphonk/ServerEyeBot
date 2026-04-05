@@ -307,9 +307,19 @@ func (s *MetricsServiceImpl) getStaticInfo() *domain.StaticInfoResponse {
 	s.cacheMutex.RUnlock()
 
 	if serverKey != "" {
+		s.logger.Info("Attempting to get static info", "server_key", serverKey)
 		if staticInfo, err := s.apiClient.GetServerStaticInfo(context.Background(), serverKey); err == nil {
+			s.logger.Info("Static info retrieved successfully",
+				"hostname", staticInfo.ServerInfo.Hostname,
+				"os", staticInfo.ServerInfo.OS,
+				"kernel", staticInfo.ServerInfo.Kernel,
+				"arch", staticInfo.ServerInfo.Architecture)
 			return staticInfo
+		} else {
+			s.logger.Error("Failed to get static info", "error", err, "server_key", serverKey)
 		}
+	} else {
+		s.logger.Info("No server key available for static info")
 	}
 
 	return nil
@@ -550,6 +560,16 @@ func (s *MetricsServiceImpl) convertToLegacyMetrics(newResponse *domain.MetricsR
 		GPUTemperature:     newResponse.Metrics.Metrics.Temperatures.GPU,
 		SystemTemperature:  newResponse.Metrics.Metrics.Temperatures.CPU, // Use CPU as system temp fallback
 		HighestTemperature: newResponse.Metrics.Metrics.Temperatures.Highest,
+	}
+
+	// Log storage temperatures for debugging
+	if len(newResponse.Metrics.Metrics.Temperatures.Storage) > 0 {
+		s.logger.Info("Storage temperatures found", "count", len(newResponse.Metrics.Metrics.Temperatures.Storage))
+		for i, storage := range newResponse.Metrics.Metrics.Temperatures.Storage {
+			s.logger.Info("Storage temperature", "index", i, "device", storage.Device, "temp", storage.Temperature)
+		}
+	} else {
+		s.logger.Info("No storage temperatures found in API response")
 	}
 
 	// Convert system details
