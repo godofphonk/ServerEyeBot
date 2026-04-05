@@ -288,14 +288,20 @@ func (s *MetricsServiceImpl) FormatSystem(metrics *domain.ServerMetrics) string 
 
 // getStaticInfo retrieves static system information
 func (s *MetricsServiceImpl) getStaticInfo() *domain.StaticInfoResponse {
+	fmt.Printf("=== GET STATIC INFO CALLED ===\n")
+
 	// Try to get static info from cache or API
 	var serverKey string
 	s.cacheMutex.RLock()
+	fmt.Printf("=== CACHE SIZE: %d ===\n", len(s.cache))
 	for key := range s.cache {
 		serverKey = key
+		fmt.Printf("=== FOUND SERVER KEY: %s ===\n", key)
 		break // Use first available server key
 	}
 	s.cacheMutex.RUnlock()
+
+	fmt.Printf("=== SERVER KEY FOR STATIC INFO: %s ===\n", serverKey)
 
 	if serverKey != "" {
 		s.logger.Info("Attempting to get static info", "server_key", serverKey)
