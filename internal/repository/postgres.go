@@ -173,14 +173,14 @@ ORDER BY us.created_at DESC
 
 // RemoveServerFromUser removes a server from a user's server list
 func (r *PostgresRepository) RemoveServerFromUser(userID int64, serverID string) error {
-	query := `DELETE FROM user_servers WHERE user_id = $1 AND server_id = $2`
+	query := `DELETE FROM user_servers WHERE user_id = $1 AND server_key = $2`
 	_, err := r.db.Exec(query, userID, serverID)
 	return err
 }
 
 // IsServerOwnedByUser checks if a server is owned by a user
 func (r *PostgresRepository) IsServerOwnedByUser(userID int64, serverID string) (bool, error) {
-	query := `SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = $1 AND server_id = $2)`
+	query := `SELECT EXISTS(SELECT 1 FROM user_servers WHERE user_id = $1 AND server_key = $2)`
 
 	var exists bool
 	err := r.db.QueryRow(query, userID, serverID).Scan(&exists)
