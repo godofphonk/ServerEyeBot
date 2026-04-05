@@ -122,6 +122,7 @@ jobs:
   deploy-production:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/production'
+    needs: build-and-push
     steps:
     - name: Deploy to production
       uses: appleboy/ssh-action@v1.2.5
