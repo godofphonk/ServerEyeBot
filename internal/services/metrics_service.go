@@ -14,10 +14,12 @@ import (
 
 // MetricsServiceImpl implements ServerMetricsService
 type MetricsServiceImpl struct {
-	apiClient  *api.Client
-	cache      map[string]*domain.MetricsCache
-	cacheMutex sync.RWMutex
-	logger     Logger
+	apiClient    *api.Client
+	cache        map[string]*domain.MetricsCache
+	cacheMutex   sync.RWMutex
+	logger       Logger
+	currentKey   string
+	currentKeyMu sync.RWMutex
 }
 
 // Logger interface for metrics service
@@ -41,6 +43,11 @@ func NewMetricsService(apiClient *api.Client, logger Logger) *MetricsServiceImpl
 func (s *MetricsServiceImpl) GetServerMetrics(serverKey string) (*domain.LegacyMetricsResponse, error) {
 	fmt.Printf("=== GETTING FRESH METRICS FROM API ===\n")
 	s.logger.Info("Getting fresh server metrics from API", "server_key", serverKey)
+
+	// Store current server key for static info access
+	s.currentKeyMu.Lock()
+	s.currentKey = serverKey
+	s.currentKeyMu.Unlock()
 
 	// Fetch from API
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -290,18 +297,12 @@ func (s *MetricsServiceImpl) FormatSystem(metrics *domain.ServerMetrics) string 
 func (s *MetricsServiceImpl) getStaticInfo() *domain.StaticInfoResponse {
 	s.logger.Info("DEBUG: getStaticInfo called")
 
-	// Try to get static info from cache or API
-	var serverKey string
-	s.cacheMutex.RLock()
-	s.logger.Info("DEBUG: cache size", "size", len(s.cache))
-	for key := range s.cache {
-		serverKey = key
-		s.logger.Info("DEBUG: found server key in cache", "key", key)
-		break // Use first available server key
-	}
-	s.cacheMutex.RUnlock()
+	// Use current server key instead of cache
+	s.currentKeyMu.RLock()
+	serverKey := s.currentKey
+	s.currentKeyMu.RUnlock()
 
-	s.logger.Info("DEBUG: server key for static info", "server_key", serverKey)
+	s.logger.Info("DEBUG: using current server key", "server_key", serverKey)
 
 	if serverKey != "" {
 		s.logger.Info("Attempting to get static info", "server_key", serverKey)
