@@ -196,7 +196,7 @@ func ValidateServerID(serverID string) error {
 func (c *Client) GetServerMetrics(ctx context.Context, serverKey string) (*domain.MetricsResponse, error) {
 	c.logger.Debug("Getting server metrics", "server_key", serverKey)
 
-	url := fmt.Sprintf("%s/api/servers/by-key/%s/metrics", c.baseURL, serverKey)
+	url := fmt.Sprintf("%s/api/servers/by-key/%s/unified", c.baseURL, serverKey)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {

@@ -2,11 +2,26 @@ package domain
 
 import "time"
 
-// MetricsResponse represents the response from /api/servers/by-key/{key}/metrics
+// MetricsResponse represents the response from /api/servers/by-key/{key}/unified
 type MetricsResponse struct {
-	Metrics   NewServerMetrics `json:"metrics"`
-	ServerID  string           `json:"server_id"`
-	ServerKey string           `json:"server_key"`
+	Metrics   UnifiedMetrics `json:"metrics"`
+	ServerID  string         `json:"server_id"`
+	ServerKey string         `json:"server_key"`
+	Status    ServerStatus   `json:"status"`
+}
+
+// UnifiedMetrics represents the unified API metrics structure
+type UnifiedMetrics struct {
+	Metrics  NewServerMetrics `json:"metrics"`
+	ServerID string           `json:"server_id"`
+}
+
+// ServerStatus represents server status information
+type ServerStatus struct {
+	AgentVersion string `json:"agent_version"`
+	LastSeen     string `json:"last_seen"`
+	Online       bool   `json:"online"`
+	ServerID     string `json:"server_id"`
 }
 
 // LegacyMetricsResponse represents the legacy response format for compatibility
