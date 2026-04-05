@@ -255,16 +255,21 @@ func (s *MetricsServiceImpl) FormatSystem(metrics *domain.ServerMetrics) string 
 		return "❌ Системная информация недоступна"
 	}
 
+	s.logger.Info("DEBUG: FormatSystem called", "metrics_nil", metrics == nil)
+
 	var sb strings.Builder
 	sb.WriteString("🖥️ Система:\n")
 
 	// Try to get static info for hostname, OS, etc.
+	s.logger.Info("DEBUG: About to call getStaticInfo")
 	if staticInfo := s.getStaticInfo(); staticInfo != nil {
+		s.logger.Info("DEBUG: Static info retrieved successfully", "hostname", staticInfo.ServerInfo.Hostname)
 		sb.WriteString(fmt.Sprintf("- Хостнейм: %s\n", staticInfo.ServerInfo.Hostname))
 		sb.WriteString(fmt.Sprintf("- ОС: %s %s\n", staticInfo.ServerInfo.OS, staticInfo.ServerInfo.OSVersion))
 		sb.WriteString(fmt.Sprintf("- Ядро: %s\n", staticInfo.ServerInfo.Kernel))
 		sb.WriteString(fmt.Sprintf("- Архитектура: %s\n", staticInfo.ServerInfo.Architecture))
 	} else {
+		s.logger.Info("DEBUG: Static info is nil")
 		sb.WriteString("- Хостнейм: Недоступно\n")
 		sb.WriteString("- ОС: Недоступно\n")
 		sb.WriteString("- Ядро: Недоступно\n")
